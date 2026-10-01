@@ -1,0 +1,3033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESMI4 FA Alarm List Management &amp; Report Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --blue:#2563eb; --blue-d:#1d4ed8; --bg:#f4f6f9; --card:#ffffff; --border:#e2e6ec;
+    --text:#1f2430; --muted:#6b7280; --green:#16a34a; --orange:#ea580c; --purple:#7c3aed;
+    --gray:#6b7280; --red:#dc2626;
+  }
+  *{box-sizing:border-box;}
+  /* Always reserve the scrollbar's width, whether or not the page is currently tall enough to
+     need one. Without this, opening/closing a drill-down report (which changes the page height)
+     can make the vertical scrollbar appear/disappear, which shifts every card's available width
+     by ~15px — just enough to make a card header's text re-wrap onto an extra line and look like
+     the chart "grew" and never shrank back. Reserving the gutter up front removes that shift entirely. */
+  html{ overflow-y:scroll; scrollbar-gutter:stable; }
+  body{
+    margin:0; font-family:"Segoe UI","Malgun Gothic",-apple-system,sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px;
+  }
+  header{
+    background:linear-gradient(90deg,var(--blue),var(--blue-d)); color:#fff;
+    padding:18px 24px;
+  }
+  header h1{margin:0; font-size:19px;}
+  header p{margin:4px 0 0; font-size:12.5px; opacity:.9;}
+  nav{
+    display:flex; gap:6px; background:#fff; border-bottom:1px solid var(--border);
+    padding:0 20px; overflow-x:auto;
+  }
+  nav button{
+    border:none; background:none; padding:12px 16px; font-size:14px; cursor:pointer;
+    color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; font-weight:600;
+  }
+  nav button.active{ color:var(--blue-d); border-bottom-color:var(--blue-d); }
+  main{ padding:20px; max-width:1400px; margin:0 auto; }
+  .panel{ display:none; }
+  .panel.active{ display:block; }
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; margin-bottom:16px;
+  }
+  .card h3{margin:0 0 10px; font-size:14.5px;}
+  .guide{ background:#eef4ff; border-color:#c9dcff; font-size:13px; line-height:1.7; color:#1e3a8a; }
+  .guide b{color:#1d4ed8;}
+  .toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar input[type=file]{ font-size:13px; }
+  button.btn{
+    border:1px solid var(--blue-d); background:var(--blue); color:#fff; border-radius:6px;
+    padding:8px 14px; font-size:13px; cursor:pointer; font-weight:600;
+  }
+  button.btn.secondary{ background:#fff; color:var(--blue-d); }
+  button.btn.gray{ background:#fff; color:var(--muted); border-color:var(--border); }
+  button.btn.sm{ padding:4px 9px; font-size:12px; border-radius:5px; }
+  button.btn:hover{ opacity:.9; }
+  button.btn:disabled{ opacity:.5; cursor:default; }
+  .fileinfo{ font-size:12.5px; color:var(--muted); }
+  .fileinfo b{color:var(--text);}
+  .tablewrap{ overflow:auto; max-height:420px; border:1px solid var(--border); border-radius:8px; }
+  table{ border-collapse:collapse; width:100%; font-size:12.5px; }
+  table th, table td{ border-bottom:1px solid var(--border); border-right:1px solid #f0f2f5; padding:8px 10px; text-align:left; vertical-align:middle; }
+  table thead th{ background:#f8f9fb; position:sticky; top:0; z-index:1; font-weight:700; color:#374151; }
+  table tbody tr:hover{ background:#fafbfd; }
+  .num{ text-align:right; white-space:nowrap; font-weight:600; }
+  .muted{ color:var(--muted); }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700; color:#fff; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
+  .kpi{ background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .kpi .label{ font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .kpi .value{ font-size:23px; font-weight:800; }
+  .kpi .delta{ font-size:12px; margin-top:4px; font-weight:600; }
+  .delta.up{ color:var(--red); } .delta.down{ color:var(--blue-d); } .delta.flat{ color:var(--muted); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .grid3{ display:grid; grid-template-columns:1.2fr 1fr 1.2fr; gap:16px; }
+  @media (max-width:960px){ .grid2, .grid3{ grid-template-columns:1fr; } }
+  .chartbox{ position:relative; height:250px; }
+  select.vendorfilter{ padding:7px 10px; border-radius:6px; border:1px solid var(--border); font-size:13px; font-weight:600; }
+  .focusItem{ border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; background:#fffefb; }
+  .focusItem .top{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; font-size:13px; font-weight:700; }
+  .focusItem .desc{ font-size:12px; color:var(--muted); margin-top:4px; white-space:pre-wrap; }
+  .focusItem .hint{ font-size:12px; color:#92400e; margin-top:4px; font-weight:600; }
+  .rank{ display:inline-block; width:20px; height:20px; background:var(--blue); color:#fff; border-radius:50%; text-align:center; font-size:11px; line-height:20px; margin-right:6px; }
+  .empty{ text-align:center; color:var(--muted); padding:30px 10px; font-size:13px; }
+  footer{ text-align:center; color:var(--muted); font-size:11.5px; padding:20px; }
+  .tag{ font-size:11px; background:#eef2ff; color:#4338ca; padding:2px 6px; border-radius:4px; font-weight:700; margin-right:6px; }
+  .tag.new{ background:#dcfce7; color:#15803d; }
+  .dropzone{ border:2px dashed var(--border); border-radius:8px; padding:22px; text-align:center; color:var(--muted); font-size:13px; cursor:pointer; margin-bottom:10px; transition:background .15s,border-color .15s,color .15s; }
+  .dropzone:hover{ background:#f8faff; }
+  .dropzone.dragover{ background:#eef4ff; border-color:var(--blue); color:var(--blue-d); }
+  .filetype-tag{ display:inline-block; font-size:10.5px; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:6px; }
+  .filetype-tag.dash{ background:#dbeafe; color:#1d4ed8; }
+  .filetype-tag.other{ background:#f3f4f6; color:#4b5563; }
+  .filtergrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+  .filterbox{ border:1px solid var(--border); border-radius:8px; padding:10px; background:#fcfdff; }
+  .filterbox .ftitle{ font-weight:700; font-size:12.5px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+  .filterbox .fcount{ font-size:11px; color:var(--muted); font-weight:600; }
+  .filtersearch{ width:100%; padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-bottom:6px; }
+  .filterlist{ max-height:160px; overflow:auto; border-top:1px solid #eef0f4; padding-top:4px; }
+  .filterlist label{ display:flex; align-items:center; gap:6px; font-size:12px; padding:2px 2px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .filterlist label:hover{ background:#f1f5ff; }
+  .filterlist input{ flex:none; }
+  .filterall{ font-weight:700; border-bottom:1px solid #eef0f4; padding-bottom:4px; margin-bottom:2px; }
+  .dashwrap{ display:flex; gap:16px; align-items:flex-start; }
+  .dashside{ width:250px; flex:none; position:sticky; top:10px; max-height:calc(100vh - 20px); overflow:auto; }
+  .dashmain{ flex:1; min-width:0; }
+  .dashside .filtergrid{ grid-template-columns:1fr; }
+  .dashside .filterlist{ max-height:150px; }
+  @media (max-width:900px){ .dashwrap{ flex-direction:column; } .dashside{ width:100%; position:static; max-height:none; } .dashside .filtergrid{ grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); } }
+  .rangeslider{ position:relative; height:26px; margin:8px 4px 2px; }
+  .rangeslider .track{ position:absolute; top:11px; left:0; right:0; height:4px; background:#dbe3ef; border-radius:2px; }
+  .rangeslider .trackfill{ position:absolute; top:11px; height:4px; background:var(--blue); border-radius:2px; }
+  .rangeslider input[type=range]{ position:absolute; left:0; top:0; width:100%; height:26px; margin:0; background:none; -webkit-appearance:none; appearance:none; pointer-events:none; }
+  .rangeslider input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; pointer-events:auto; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid var(--blue); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.3); margin-top:-6px; }
+  .rangeslider input[type=range]::-moz-range-thumb{ pointer-events:auto; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid var(--blue); cursor:pointer; }
+  .rangeslider input[type=range]::-webkit-slider-runnable-track{ height:4px; background:transparent; }
+  .rangeslider input[type=range]::-moz-range-track{ height:4px; background:transparent; }
+</style>
+</head>
+<body>
+
+<div id="loginGate" style="position:fixed;inset:0;z-index:100000;background:#0f172a;display:flex;align-items:center;justify-content:center;font-family:'Segoe UI',sans-serif;">
+  <div style="background:#fff;padding:32px 36px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.4);width:320px;">
+    <h2 style="margin:0 0 4px;font-size:20px;color:#1e3a8a;">ESMI4 Alarm Tool</h2>
+    <p style="margin:0 0 18px;font-size:12.5px;color:#64748b;">Please sign in to continue.</p>
+    <input id="loginId" type="text" placeholder="ID" autocomplete="username" style="width:100%;padding:10px;margin-bottom:10px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-size:14px;">
+    <input id="loginPw" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;padding:10px;margin-bottom:14px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-size:14px;">
+    <button id="loginBtn" style="width:100%;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:14px;">Sign In</button>
+    <div id="loginErr" style="display:none;margin-top:10px;color:#dc2626;font-size:12.5px;">Invalid ID or password.</div>
+  </div>
+</div>
+<script>
+(function(){
+  var gate=document.getElementById('loginGate');
+  var ok=false; try{ ok=sessionStorage.getItem('esmi4_auth')==='1'; }catch(e){}
+  if(ok){ gate.style.display='none'; return; }
+  function tryLogin(){
+    var id=(document.getElementById('loginId').value||'').trim();
+    var pw=document.getElementById('loginPw').value||'';
+    if(id==='esmi4' && pw==='esmi4'){
+      try{ sessionStorage.setItem('esmi4_auth','1'); }catch(e){}
+      gate.style.display='none';
+    } else { document.getElementById('loginErr').style.display='block'; }
+  }
+  document.getElementById('loginBtn').addEventListener('click',tryLogin);
+  ['loginId','loginPw'].forEach(function(idn){
+    document.getElementById(idn).addEventListener('keydown',function(e){ if(e.key==='Enter') tryLogin(); });
+  });
+  document.getElementById('loginId').focus();
+})();
+</script>
+
+<header style="position:relative;">
+  <h1>ESMI4 FA Alarm List Management &amp; Report Tool</h1>
+  <p>Vendor-based alarm list upload (multi-file history management) · Shared storage (Firebase) auto-sync · Weekly alarm status dashboard &amp; automatic report</p>
+  <div style="position:absolute;top:16px;right:20px;display:flex;gap:6px;align-items:center;font-size:12px;color:#e5edff;">
+    <span style="opacity:.85;">Language</span>
+    <button id="langEN" style="padding:5px 10px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-size:12px;">EN</button>
+    <button id="langKR" style="padding:5px 10px;border:none;border-radius:6px;background:#1e293b;color:#fff;font-weight:700;cursor:pointer;font-size:12px;">한국어</button>
+  </div>
+</header>
+
+<nav id="tabnav"></nav>
+
+<main>
+  <div id="panels"></div>
+</main>
+
+<footer>Uploaded files are stored in the Firebase shared storage and are shared with everyone who accesses this link. Please share the link only with internal stakeholders.</footer>
+
+<div id="defModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.55);align-items:flex-start;justify-content:center;overflow:auto;padding:40px 16px;box-sizing:border-box;">
+  <div style="background:#fff;max-width:920px;width:100%;border-radius:12px;box-shadow:0 12px 44px rgba(0,0,0,.4);padding:24px 28px;box-sizing:border-box;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:17px;">Status &amp; Cause Definitions</h3>
+      <button id="defClose" style="border:none;background:#e5e7eb;border-radius:6px;padding:7px 13px;cursor:pointer;font-weight:700;">✕ Close</button>
+    </div>
+      <div class="grid2">
+        <div>
+          <div style="font-weight:700;margin-bottom:6px;font-size:13px;">Status</div>
+          <div style="font-size:12.5px;line-height:1.6;">
+            <div style="margin-bottom:8px;"><b>Unavoidable</b> — Alarms that cannot be completely eliminated due to operator errors, sensor damage, or equipment failures.</div>
+            <div style="margin-bottom:8px;"><b>Operational</b> — A normal operation alarm that is not caused by a fault. (Ex: EMO Switch On alarm)</div>
+            <div style="margin-bottom:8px;"><b>On-going</b> — The alarm has been identified, and corrective actions and rollout are in progress.</div>
+            <div style="margin-bottom:8px;"><b>Monitoring</b> — Under 10-day monitoring after corrective actions and rollout.</div>
+            <div><b>Completed</b> — No alarm recurrence during the 10-day monitoring period.</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:6px;font-size:13px;">Cause (Root-Cause Category)</div>
+          <div style="font-size:12.5px;line-height:1.6;">
+            <div style="margin-bottom:8px;"><b>Equipment</b> — Alarms caused by a hardware fault or malfunction of the equipment itself: sensors, cylinders, motors, drives, actuators, or other mechanical parts failing, drifting out of spec, or losing alignment.</div>
+            <div style="margin-bottom:8px;"><b>Operator</b> — Alarms triggered by operator actions or manual intervention during production, such as running in manual mode, opening equipment doors, or an object being detected while a worker is inside or working on the line.</div>
+            <div style="margin-bottom:8px;"><b>Material</b> — Alarms caused by the condition of materials or consumables — jigs, pallets, cells, trays, or foils — including defects, damage, misalignment, poor seating/loading, or foreign objects.</div>
+            <div style="margin-bottom:8px;"><b>IT</b> — Alarms related to IT systems, networking, communication, or software: MES/CIM interface errors, RFID / PLC / barcode communication faults, and control-sequence or parameter issues.</div>
+            <div style="margin-bottom:8px;"><b>Process Equipment</b> — Alarms that originate from the upstream or downstream process equipment interfacing with the line (e.g., stockers, aging/formation units, adjacent process tools) rather than from the conveyance equipment itself.</div>
+            <div style="margin-bottom:8px;"><b>Utility</b> — Alarms caused by instability or interruption of utility supply, such as compressed air, electrical power, vacuum, or cooling water.</div>
+            <div style="margin-bottom:8px;"><b>Environment</b> — Alarms caused by environmental or external factors, such as temperature/humidity conditions, static, vibration, or external electrical interference.</div>
+            <div><b>Unknown</b> — The root cause has not been clearly identified yet. These alarms are kept under monitoring so the trend can be observed over time and the true cause confirmed before a category is assigned.</div>
+          </div>
+        </div>
+      </div>
+  </div>
+</div>
+<script>
+(function(){
+  function close(){ var m=document.getElementById('defModal'); if(m) m.style.display='none'; }
+  document.addEventListener('click',function(e){
+    var t=e.target;
+    if(t && t.id==='defBtn'){ var m=document.getElementById('defModal'); if(m) m.style.display='flex'; }
+    else if(t && (t.id==='defClose' || t.id==='defModal')){ close(); }
+  });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') close(); });
+})();
+</script>
+
+<script>
+/* ===================== Basic settings ===================== */
+const VENDORS = ['CNS','COWIN'];
+const VENDOR_COLOR = {CNS:'#7c3aed', COWIN:'#16a34a'};
+const STATUS_COLOR = {
+  'Unavoidable':'#6b7280', 'Operational':'#0891b2', 'On-going':'#ea580c', 'On-Going':'#ea580c',
+  'Monitoring':'#7c3aed', 'Completed':'#16a34a'
+};
+const CAUSE_LIST = ['Equipment','Operator','Material','IT','Process Equipment','Utility','Environment','Unknown'];
+const CAUSE_COLORS = ['#2563eb','#ea580c','#16a34a','#7c3aed','#0891b2','#ca8a04','#dc2626','#6b7280'];
+const ACTION_HINT = {
+  'On-going': 'Root cause analysis / corrective action needed',
+  'Monitoring': 'Keep monitoring for recurrence',
+  'Unavoidable': 'Re-inspect standard work/sensor if it recurs',
+  'Operational': 'Re-verify whether this is a normal operational alarm',
+  'Completed': 'Only check for recurrence'
+};
+const ACTION_HINT_KR = {
+  'On-going': '근본원인 분석 / 개선조치 필요',
+  'On-Going': '근본원인 분석 / 개선조치 필요',
+  'Monitoring': '재발 여부 지속 모니터링',
+  'Unavoidable': '재발 시 표준작업/센서 재점검',
+  'Operational': '정상 운영성 알람인지 재확인',
+  'Completed': '재발 여부만 확인'
+};
+function actionHint(status){ return UI_LANG==='KR' ? (ACTION_HINT_KR[status] || '현재 상태 확인 필요') : (ACTION_HINT[status] || 'Current status check needed'); }
+// Always start in English by default. The EN/한국어 toggle still switches language
+// during the session (a manual choice is remembered only until reload).
+var UI_LANG='EN';
+function issueText(row){ if(!row) return ''; return UI_LANG==='KR' ? (row.symptom||row.observedIssue||'') : (row.observedIssue||row.symptom||''); }
+function actionText(row){ if(!row) return ''; return UI_LANG==='KR' ? (row.action||row.actionEn||'') : (row.actionEn||row.action||''); }
+function setLang(l){ UI_LANG=l; try{localStorage.setItem('esmi4_lang',l);}catch(e){}
+  var en=document.getElementById('langEN'), kr=document.getElementById('langKR');
+  if(en) en.style.background=l==='EN'?'#2563eb':'#1e293b';
+  if(kr) kr.style.background=l==='KR'?'#2563eb':'#1e293b';
+  if(typeof qaApplyLang==='function') qaApplyLang();
+  if(typeof renderDashboard==='function') renderDashboard();
+  // Re-run the last Q&A query so its report follows the language.
+  if(typeof qaRunQuery==='function' && lastQaQuery){ qaRunQuery(lastQaQuery); }
+}
+/* ===================== Unit ID → Machine name map (ESMI4 mapping not yet provided) =====================
+   A location code like "J1ESTO21201-101" is matched by its front part only (everything
+   before the last "-"), e.g. "J1ESTO21201" → "Mixer Stocker #1". */
+const MACHINE_MAP = {};  // ESMI4 unit-ID -> readable machine name mapping not yet provided; falls back to the raw Unit ID for now.
+// Front part of a location code (everything before the last "-"): J1ESTO21201-101 → J1ESTO21201
+function machinePrefix(loc){
+  if(!loc) return '';
+  const s = String(loc).trim();
+  const i = s.lastIndexOf('-');
+  return i>0 ? s.slice(0,i) : s;
+}
+function machineName(loc){
+  return MACHINE_MAP[machinePrefix(loc)] || machinePrefix(loc) || '(unknown)';
+}
+// Machine type = the 3 letters after "J1x" in a Unit ID (e.g. J1E[STO]21201 → STO).
+function unitMachineType(uid){ return String(uid||'').slice(3,6); }
+const HISTORY_KEY = 'alarmTool_history_v2';
+// Firestore caps each document at ~1MB. To store larger files on the free plan we split
+// the base64 into chunks across multiple documents (a 'chunks' subcollection) and
+// reassemble them on download. This raises the practical per-file limit well beyond 1MB.
+const MAX_FILE_BYTES = 25 * 1024 * 1024;   // 25 MB per file
+const CHUNK_CHARS = 700 * 1024;            // base64 chars per Firestore chunk doc (~700KB, safely under 1MB)
+const INLINE_MAX = 900 * 1024;             // files whose base64 is <= this are stored inline in one doc
+
+const state = {};
+VENDORS.forEach(v => state[v] = { files: [], current: null });
+const chartInstances = {};
+
+// Per-chart plugin: draws the STACK TOTAL above each stacked bar column.
+const stackTotalPlugin = {
+  id: 'stackTotal',
+  afterDatasetsDraw(chart){
+    const { ctx, scales } = chart;
+    const y = scales.y, x = scales.x;
+    const n = chart.data.labels.length;
+    const totals = new Array(n).fill(0);
+    chart.data.datasets.forEach((ds, di)=>{ if(chart.getDatasetMeta(di).hidden) return; ds.data.forEach((v,i)=>{ totals[i] += (v||0); }); });
+    totals.forEach((t,i)=>{
+      if(!t) return;
+      ctx.save();
+      ctx.fillStyle = '#1f2430';
+      ctx.font = '700 10px "Segoe UI",sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(t, x.getPixelForValue(i), y.getPixelForValue(t) - 2);
+      ctx.restore();
+    });
+  }
+};
+// Per-chart plugin: draws each bar's value above the bar (add to a chart's `plugins:[...]`).
+const valueLabelsPlugin = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart){
+    const { ctx } = chart;
+    const MIN_GAP = 13; // minimum vertical px between two labels sharing the same x
+    // Collect every visible label first, grouped by data index, so labels from different
+    // datasets/axes (e.g. a bar total and an overlapping line point) can be de-conflicted.
+    const byIndex = new Map();
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if(meta.hidden) return;
+      meta.data.forEach((el, i) => {
+        const v = ds.data[i];
+        if(v == null || v === 0) return;
+        if(!byIndex.has(i)) byIndex.set(i, []);
+        byIndex.get(i).push({ x: el.x, y: el.y - 2, text: String(v), color: ds.borderColor || '#1f2430' });
+      });
+    });
+    byIndex.forEach(entries => {
+      // Sort top-to-bottom (smaller canvas y = higher up) and push apart any that are closer
+      // than MIN_GAP so text never overlaps.
+      entries.sort((a,b)=> a.y - b.y);
+      for(let k=1;k<entries.length;k++){
+        if(entries[k].y < entries[k-1].y + MIN_GAP) entries[k].y = entries[k-1].y + MIN_GAP;
+      }
+      entries.forEach(e=>{
+        ctx.save();
+        ctx.fillStyle = e.color;
+        ctx.font = '700 10px "Segoe UI",sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(e.text, e.x, e.y);
+        ctx.restore();
+      });
+    });
+  }
+};
+
+// Chart.js plugin: draws the translucent selection rectangle on the daily chart while
+// the user drags. Only acts on a chart that has a `$brush` property set.
+if(window.Chart){
+  Chart.register({
+    id: 'brushOverlay',
+    afterDraw(chart){
+      const b = chart.$brush;
+      if(!b) return;
+      const { ctx, chartArea, scales } = chart;
+      const x = scales.x;
+      const n = chart.data.labels.length || 1;
+      const band = (chartArea.right - chartArea.left) / n;
+      const left = x.getPixelForValue(b.a) - band/2;
+      const right = x.getPixelForValue(b.b) + band/2;
+      ctx.save();
+      ctx.fillStyle = 'rgba(37,99,235,0.15)';
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1;
+      ctx.fillRect(left, chartArea.top, right-left, chartArea.bottom-chartArea.top);
+      ctx.strokeRect(left, chartArea.top, right-left, chartArea.bottom-chartArea.top);
+      ctx.restore();
+    }
+  });
+}
+// Wire drag selection on the persistent #chartOverview canvas (attached once). Reads the
+// live chart from chartInstances at event time and updates dashState on drag end.
+function setupDailyChartDrag(){
+  const canvas = document.getElementById('chartOverview');
+  if(!canvas) return;
+  let dragStart = null;
+  const idxAt = (chart, clientX)=>{
+    const rect = chart.canvas.getBoundingClientRect();
+    let i = Math.round(chart.scales.x.getValueForPixel(clientX - rect.left));
+    return Math.max(0, Math.min(chart.data.labels.length-1, i));
+  };
+  canvas.addEventListener('mousedown', e=>{
+    const chart = chartInstances['chartOverview']; if(!chart || !dashDates.length) return;
+    dragStart = idxAt(chart, e.clientX);
+    chart.$brush = { a:dragStart, b:dragStart }; chart.update('none');
+  });
+  canvas.addEventListener('mousemove', e=>{
+    const chart = chartInstances['chartOverview']; if(!chart || dragStart==null) return;
+    const j = idxAt(chart, e.clientX);
+    chart.$brush = { a:Math.min(dragStart,j), b:Math.max(dragStart,j) }; chart.update('none');
+  });
+  document.addEventListener('mouseup', e=>{
+    const chart = chartInstances['chartOverview']; if(!chart || dragStart==null) return;
+    const dates = chart.$dates || dashDates;
+    const j = idxAt(chart, e.clientX);
+    const a = Math.min(dragStart,j), b = Math.max(dragStart,j);
+    dragStart = null;
+    if(!dates[a] || !dates[b]) return;
+    dashState = { start: dates[a], end: dates[b] };
+    renderOverviewChart(activeVendors());
+    renderDailyChart(activeVendors());
+    renderDashboardBody();
+  });
+}
+
+/* ===================== Firebase shared storage setup =====================
+   Uploaded files are stored in Firestore (vendors/{vendor}/files/{fileId}).
+   Existing files are not overwritten and keep accumulating; the most
+   recently uploaded file is reflected in the dashboard.
+   The Firebase apiKey and similar values are not secret keys — they are
+   designed to be safe even if exposed publicly.
+   Control security via "Rules" in the Firestore console.
+*/
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAJzECmr5F0k_mMiEbQj2rAufz83UKNzJo",
+  authDomain: "eshd-alarm.firebaseapp.com",
+  projectId: "eshd-alarm",
+  storageBucket: "eshd-alarm.firebasestorage.app",
+  messagingSenderId: "636528607417",
+  appId: "1:636528607417:web:900d615c4e06cce6815b68"
+};
+let fbDb = null;
+function fbConfigured(){ return !!FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('PASTE'); }
+function fbGetDb(){
+  if(!fbDb){
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbDb = firebase.firestore();
+  }
+  return fbDb;
+}
+function filesCol(vendor){ return fbGetDb().collection('esmi4_vendors').doc(vendor).collection('files'); }
+
+function arrayBufferToBase64(buf){
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for(let i=0;i<bytes.length;i+=chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i,i+chunk));
+  return btoa(binary);
+}
+function base64ToUint8Array(base64){
+  const binaryStr = atob(base64.replace(/\n/g,''));
+  const bytes = new Uint8Array(binaryStr.length);
+  for(let i=0;i<binaryStr.length;i++) bytes[i] = binaryStr.charCodeAt(i);
+  return bytes;
+}
+function setSyncStatus(vendor, text, isError){
+  const el = document.getElementById(`syncstatus-${vendor}`);
+  if(el){ el.textContent = text; el.style.color = isError ? '#dc2626' : '#6b7280'; }
+}
+
+/* ===================== Firestore file list / upload / download / delete =====================
+   Files are stored as: a metadata document in esmi4_vendors/{vendor}/files/{id} (no file bytes),
+   plus the base64 content split across esmi4_vendors/{vendor}/files/{id}/chunks/{index}.
+   Older files may still carry an inline `base64` field — both layouts are supported. */
+async function fbListFiles(vendor){
+  const snap = await filesCol(vendor).orderBy('uploadedAt','desc').get();
+  return snap.docs.map(doc=>{
+    const d = doc.data();
+    return {
+      id: doc.id,
+      fileName: d.fileName,
+      base64Inline: d.base64 || null,   // legacy single-document storage
+      chunkCount: d.chunkCount || 0,
+      size: d.size || 0,
+      fileType: d.fileType || fileExt(d.fileName),
+      isAlarmData: !!d.isAlarmData,
+      uploadedAt: (d.uploadedAt && d.uploadedAt.toDate) ? d.uploadedAt.toDate() : null
+    };
+  });
+}
+// Fetch the full base64 for a file only when needed (download, or parsing the current
+// dashboard file) — keeps the file-list load fast even with large files.
+async function fbGetFileBase64(vendor, file){
+  if(file.base64Inline) return file.base64Inline;
+  const snap = await filesCol(vendor).doc(file.id).collection('chunks').orderBy('i').get();
+  return snap.docs.map(d => d.data().s).join('');
+}
+async function fbUploadFile(vendor, fileName, base64, fileType, isAlarmData){
+  // Small files (nearly all alarm .xlsx) are stored INLINE in the single metadata document.
+  // This keeps normal uploads working even if the Firestore rules only cover /files/{id}
+  // (no recursive subcollection rule). Only genuinely large files use the chunks subcollection.
+  if(base64.length <= INLINE_MAX){
+    await filesCol(vendor).add({
+      fileName, fileType: fileType || '', isAlarmData: !!isAlarmData,
+      base64, size: base64.length, chunkCount: 0,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    return;
+  }
+  const chunks = [];
+  for(let i=0; i<base64.length; i+=CHUNK_CHARS) chunks.push(base64.slice(i, i+CHUNK_CHARS));
+  const ref = await filesCol(vendor).add({
+    fileName, fileType: fileType || '', isAlarmData: !!isAlarmData,
+    size: base64.length, chunkCount: chunks.length,
+    uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  for(let i=0; i<chunks.length; i++){
+    await ref.collection('chunks').doc(String(i)).set({ i, s: chunks[i] });
+  }
+}
+async function fbDeleteFile(vendor, fileId, chunkCount){
+  // Only touch the chunks subcollection when the file actually used chunks. For inline
+  // files (chunkCount 0), querying the subcollection would be denied by a non-recursive
+  // Firestore rule and make the whole delete fail.
+  if(chunkCount > 0){
+    try{
+      const chunksSnap = await filesCol(vendor).doc(fileId).collection('chunks').get();
+      for(const d of chunksSnap.docs) await d.ref.delete();
+    }catch(e){ console.warn('chunk cleanup skipped:', e.message); }
+  }
+  await filesCol(vendor).doc(fileId).delete();
+}
+
+/* ===================== Summary sheet parsing ===================== */
+function cellAt(ws, r, c){ return ws[XLSX.utils.encode_cell({r,c})]; }
+function decodeRef(ws){ return XLSX.utils.decode_range(ws['!ref']); }
+function findCell(ws, matchFn){
+  const range = decodeRef(ws);
+  for(let r=range.s.r; r<=range.e.r; r++){
+    for(let c=range.s.c; c<=range.e.c; c++){
+      const cell = cellAt(ws,r,c);
+      if(cell && cell.v!==undefined && matchFn(cell.v)) return {r,c,v:cell.v};
+    }
+  }
+  return null;
+}
+function toDate(v){ return v instanceof Date ? v : (typeof v === 'string' ? new Date(v) : null); }
+function fmtDate(v){
+  const d = toDate(v);
+  if(!d || isNaN(d.getTime())) return '-';
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+function fmtDateFull(v){
+  const d = toDate(v);
+  if(!d || isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function todayStr(){
+  const d = new Date();
+  return `${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+}
+function esc(s){
+  if(s===undefined || s===null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function num(v){ return (typeof v === 'number') ? v.toLocaleString('en-US') : (v ?? '-'); }
+function fileExt(name){ const m = /\.([a-z0-9]+)$/i.exec(name||''); return m ? m[1].toLowerCase() : ''; }
+function fileTypeIcon(ext){
+  if(['xlsx','xls'].includes(ext)) return '📊';
+  if(['pptx','ppt'].includes(ext)) return '📽️';
+  if(['docx','doc'].includes(ext)) return '📄';
+  if(ext==='pdf') return '📕';
+  return '📁';
+}
+
+function parseCauseTable(ws, titleSubstr){
+  const title = findCell(ws, v=> typeof v==='string' && v.includes(titleSubstr));
+  if(!title) return null;
+  const headerRow = title.r+1, dataStart = headerRow+1;
+  const causeCol = title.c, countCol = title.c+1;
+  const rows=[]; let total=0, r=dataStart;
+  while(true){
+    const label = cellAt(ws,r,causeCol)?.v;
+    if(label===undefined || label===null) break;
+    const count = cellAt(ws,r,countCol)?.v ?? 0;
+    if(label === 'Total'){ total = count; break; }
+    rows.push({cause:label, count: (typeof count==='number'?count:0)});
+    r++;
+    if(r > headerRow+30) break;
+  }
+  return {rows, total};
+}
+function parseTop5Table(ws, titleSubstr){
+  const title = findCell(ws, v=> typeof v==='string' && v.includes(titleSubstr));
+  if(!title) return [];
+  const headerRow = title.r+1, dataStart = headerRow+1, c0 = title.c;
+  const rows=[];
+  for(let r=dataStart; r<dataStart+5; r++){
+    const machine = cellAt(ws,r,c0)?.v;
+    if(machine===undefined || machine===null) continue;
+    rows.push({
+      machine, alarmName: cellAt(ws,r,c0+1)?.v,
+      caseNo: cellAt(ws,r,c0+2)?.v, count: cellAt(ws,r,c0+3)?.v
+    });
+  }
+  return rows;
+}
+function parseImprovementTable(ws){
+  const title = findCell(ws, v=> typeof v==='string' && v.includes('Improvement Status by Alarm Cause'));
+  if(!title) return null;
+  const headerRow = title.r+1, subHeaderRow = headerRow+1, causeCol = title.c;
+  const KNOWN = ['Unavoidable','Operational','On-Going','Monitoring','Completed'];
+  const statusCols=[];
+  for(let c=causeCol+1; c<=causeCol+8; c++){
+    const v = cellAt(ws, subHeaderRow, c)?.v;
+    if(KNOWN.includes(v)) statusCols.push({col:c, name:v}); else break;
+  }
+  const rows=[]; let r = subHeaderRow+1, totals=null;
+  while(true){
+    const label = cellAt(ws,r,causeCol)?.v;
+    if(label===undefined || label===null) break;
+    const vals={};
+    statusCols.forEach(sc => vals[sc.name] = cellAt(ws,r,sc.col)?.v ?? 0);
+    if(label === 'Total'){ totals = vals; break; }
+    rows.push({cause:label, ...vals});
+    r++;
+    if(r > subHeaderRow+30) break;
+  }
+  return { statusNames: statusCols.map(s=>s.name), rows, totals };
+}
+function excelSerialToDate(n){
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  return isNaN(d.getTime()) ? null : d;
+}
+function parseDisplayDateString(s){
+  if(!s) return null;
+  s = s.trim();
+  let d = new Date(s);
+  if(!isNaN(d.getTime())) return d;
+  // Common Excel display formats: "7/10/2026", "07/10/26", "2026-07-10"
+  const m = s.match(/^(\d{1,4})[\/\-.](\d{1,2})[\/\-.](\d{1,4})/);
+  if(m){
+    const [, a, b, c] = m;
+    if(a.length===4){
+      d = new Date(Number(a), Number(b)-1, Number(c));
+    } else {
+      let year = Number(c);
+      if(String(c).length===2) year += (year<70?2000:1900);
+      d = new Date(year, Number(a)-1, Number(b));
+    }
+    if(!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+// Accepts a SheetJS cell object (not just its .v) because when SheetJS's own date-type
+// detection misses a custom number format, the raw value stays a number/string in .v —
+// but the human-readable, already-formatted text is still available in .w, so we fall
+// back to parsing that. This is more robust than relying on `instanceof Date` alone.
+function toExcelDate(cell){
+  if(!cell) return null;
+  const v = cell.v;
+  if(v instanceof Date && !isNaN(v.getTime())) return v;
+  if(typeof v === 'number' && v > 20000 && v < 60000){
+    const d = excelSerialToDate(v);
+    if(d) return d;
+  }
+  if(typeof v === 'string' && v.trim()){
+    const d = parseDisplayDateString(v);
+    if(d) return d;
+  }
+  if(typeof cell.w === 'string' && cell.w.trim()){
+    const d = parseDisplayDateString(cell.w);
+    if(d) return d;
+  }
+  return null;
+}
+function parseSummarySheet(ws){
+  const norm = v => typeof v==='string' ? v.trim().toLowerCase() : v;
+  const dayCell = findCell(ws, v=> norm(v)==='day');
+  const dayDate = dayCell ? cellAt(ws, dayCell.r, dayCell.c+1)?.v : null;
+  const weekCell = findCell(ws, v=> norm(v)==='week');
+  let weekStart=null, weekEnd=null, weekDebug=null;
+  if(weekCell){
+    const dates=[];
+    const dump=[];
+    for(let cc=weekCell.c+1; cc<=weekCell.c+8; cc++){
+      const cell = cellAt(ws, weekCell.r, cc);
+      const d = toExcelDate(cell);
+      dump.push(`${XLSX.utils.encode_cell({r:weekCell.r,c:cc})}=${cell? JSON.stringify({t:cell.t, v:cell.v, w:cell.w, f:cell.f}) : 'empty'}`);
+      if(d) dates.push(d);
+    }
+    weekStart = dates[0] ?? null; weekEnd = dates[dates.length-1] ?? null;
+    if(!weekStart) weekDebug = `Week label found at row ${weekCell.r+1}, but none of the following cells parsed as dates: ${dump.join(' | ')}`;
+  } else {
+    // The 'Week' label itself wasn't found. Dump the first non-empty cells in the
+    // top-left of the sheet so we can see exactly what the library parsed there —
+    // this is where 'Day'/'Week' labels are expected to live.
+    const probe = [];
+    for(let r=0; r<8 && probe.length<20; r++){
+      for(let c=0; c<14; c++){
+        const cell = cellAt(ws, r, c);
+        if(cell && cell.v!==undefined && cell.v!==null && cell.v!==''){
+          probe.push(`${XLSX.utils.encode_cell({r,c})}=${JSON.stringify({t:cell.t, v:cell.v})}`);
+        }
+      }
+    }
+    weekDebug = `'Week' label was not found anywhere in the sheet. First non-empty cells found: ${probe.join(' | ') || '(sheet appears empty to the parser)'}`;
+  }
+  return {
+    dayDate, weekStart, weekEnd, weekDebug,
+    causeDay: parseCauseTable(ws, 'Alarm Occurrence by Cause (Day)'),
+    causeWeek: parseCauseTable(ws, 'Alarm Occurrence by Cause (Week)'),
+    top5Day: parseTop5Table(ws, 'Top 5 Alarm Case (Day)'),
+    top5Week: parseTop5Table(ws, 'Top 5 Alarm Case (Week)'),
+    improvement: parseImprovementTable(ws)
+  };
+}
+
+/* ===================== list sheet parsing ===================== */
+function colHasData(ws, c, lastRow){
+  for(let r=2; r<=lastRow; r++){
+    const v = cellAt(ws, r, c)?.v;
+    if(typeof v === 'number' && v !== 0) return true;
+  }
+  return false;
+}
+function parseListSheet(ws, weekStart, weekEnd){
+  const range = decodeRef(ws);
+  const merges = ws['!merges'] || [];
+  function buildFill(colIdx){
+    const fill = {};
+    merges.forEach(m=>{
+      if(m.s.c===colIdx && m.e.c===colIdx){
+        const anchor = cellAt(ws, m.s.r, colIdx)?.v;
+        for(let r=m.s.r; r<=m.e.r; r++) fill[r]=anchor;
+      }
+    });
+    return fill;
+  }
+  const fillMachine = buildFill(2), fillAlarmName = buildFill(3), fillDailyCount = buildFill(4), fillLocation = buildFill(5);
+  // Detect date columns. In the newer format each date column is followed by a paired
+  // 'Location' column holding newline-separated equipment locations (one per occurrence).
+  const dateCols = [];
+  for(let c=14; c<=range.e.c; c++){
+    const d = toExcelDate(cellAt(ws,1,c));
+    if(d){
+      const nextHdr = cellAt(ws,1,c+1)?.v;
+      const locCol = (typeof nextHdr === 'string' && /location/i.test(nextHdr)) ? c+1 : null;
+      dateCols.push({ col:c, date:d, locCol, hasData: colHasData(ws, c, range.e.r) });
+    }
+  }
+  const rows = [];
+  for(let r=2; r<=range.e.r; r++){
+    const code = cellAt(ws,r,1)?.v;
+    const status = cellAt(ws,r,6)?.v;
+    const caseNo = cellAt(ws,r,7)?.v;
+    const cause = cellAt(ws,r,8)?.v;
+    const monitoringUnit = cellAt(ws,r,9)?.v;
+    const symptom = cellAt(ws,r,10)?.v;
+    const action = cellAt(ws,r,11)?.v;
+    const observedIssue = cellAt(ws,r,12)?.v;
+    const actionEn = cellAt(ws,r,13)?.v;
+    if([code,status,caseNo,cause,monitoringUnit,symptom,action,observedIssue,actionEn].every(v=>v===undefined)) continue;
+    // Per-day breakdown with locations.
+    const daily = [];
+    let totalSum = 0;
+    dateCols.forEach(dc=>{
+      const val = cellAt(ws,r,dc.col)?.v;
+      const cnt = (typeof val === 'number') ? val : 0;
+      let locs = [];
+      if(dc.locCol){
+        const lv = cellAt(ws,r,dc.locCol)?.v;
+        if(lv!==undefined && lv!==null && String(lv).trim()!==''){
+          locs = String(lv).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+        }
+      }
+      if(cnt>0 || locs.length){
+        daily.push({ date: dc.date, count: cnt>0 ? cnt : locs.length, locations: locs });
+        totalSum += (cnt>0 ? cnt : locs.length);
+      }
+    });
+    rows.push({
+      rowNum: r,
+      code,
+      machine: cellAt(ws,r,2)?.v ?? fillMachine[r],
+      alarmName: cellAt(ws,r,3)?.v ?? fillAlarmName[r],
+      dailyCount: cellAt(ws,r,4)?.v ?? fillDailyCount[r],
+      location: cellAt(ws,r,5)?.v ?? fillLocation[r],
+      status, caseNo, cause, monitoringUnit, symptom, action, observedIssue, actionEn,
+      daily, totalSum
+    });
+  }
+  return { rows, dateCols };
+}
+
+/* ===================== Build dashboard data directly from the list sheet =====================
+   The Summary sheet in these workbooks is built entirely from volatile array formulas
+   (SUM/COUNTIF with ca="1") that Excel saves WITHOUT cached values, so a browser — which
+   cannot recalculate Excel formulas — reads that whole sheet as empty. The list sheet, by
+   contrast, contains real plain-number daily counts. So we compute every dashboard figure
+   from the list sheet, which is always reliable. */
+function normalizeStatus(s){
+  if(!s) return null;
+  const low = String(s).trim().toLowerCase().replace(/[\s_\-]/g,'');
+  if(low==='ongoing') return 'On-Going';
+  if(low==='monitoring') return 'Monitoring';
+  if(low==='completed') return 'Completed';
+  if(low==='unavoidable') return 'Unavoidable';
+  if(low==='operational') return 'Operational';
+  return String(s).trim();
+}
+/* ===================== File parsing (workbook -> data for UI/dashboard) ===================== */
+// Sheet names should be "list", but some vendor files use different case/spacing (e.g. "List",
+// "LIST ") — match case-/whitespace-insensitively before giving up, instead of requiring an
+// exact lowercase match.
+function findListSheetName(wb){
+  if(wb.Sheets['list']) return 'list';
+  return (wb.SheetNames || []).find(n => String(n).trim().toLowerCase() === 'list') || null;
+}
+function parseVendorFile(wb, fileName){
+  const listName = findListSheetName(wb);
+  const wsList = listName ? wb.Sheets[listName] : null;
+  if(!wsList) throw new Error("Could not find the 'list' sheet. Please check if this is a standard alarm list format (Summary/list/Alarm).");
+  const { rows: listRows, dateCols } = parseListSheet(wsList);
+  if(!listRows.length) throw new Error("The 'list' sheet has no alarm rows.");
+  // Overall data date range = min/max of dates that actually have alarms.
+  let dataStart=null, dataEnd=null, total=0;
+  listRows.forEach(r => r.daily.forEach(e=>{
+    total += e.count;
+    if(!dataStart || e.date<dataStart) dataStart = e.date;
+    if(!dataEnd || e.date>dataEnd) dataEnd = e.date;
+  }));
+  const summary = { dataStart, dataEnd, total };
+  return { fileName, summary, summaryError: null, listRows, dateCols };
+}
+
+/* ===================== History (for weekly trend, localStorage) ===================== */
+function loadHistory(){
+  try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)) || {}; }catch(e){ return {}; }
+}
+function saveHistorySnapshot(vendor, data){
+  const s = data.summary;
+  if(!s || !s.dataStart || !s.dataEnd) return;
+  const hist = loadHistory();
+  if(!hist[vendor]) hist[vendor] = [];
+  const weekKey = fmtDateFull(s.dataStart) + '_' + fmtDateFull(s.dataEnd);
+  const snapshot = {
+    weekKey,
+    weekStart: s.dataStart,
+    weekEnd: s.dataEnd,
+    weekTotal: s.total ?? null,
+    savedAt: new Date().toISOString(),
+    fileName: data.fileName
+  };
+  hist[vendor] = hist[vendor].filter(x => x.weekKey !== weekKey);
+  hist[vendor].push(snapshot);
+  hist[vendor].sort((a,b) => new Date(a.weekStart) - new Date(b.weekStart));
+  if(hist[vendor].length > 24) hist[vendor] = hist[vendor].slice(-24);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+}
+
+/* ===================== Tab/panel creation ===================== */
+const TABS = [...VENDORS, 'DASH'];
+const TAB_LABEL = { CNS:'CNS', COWIN:'COWIN', DASH:'📊 Dashboard' };
+
+function buildTabsAndPanels(){
+  const nav = document.getElementById('tabnav');
+  const panels = document.getElementById('panels');
+  TABS.forEach(tab=>{
+    const btn = document.createElement('button');
+    btn.textContent = TAB_LABEL[tab];
+    btn.dataset.tab = tab;
+    btn.addEventListener('click', ()=>switchTab(tab));
+    nav.appendChild(btn);
+  });
+  VENDORS.forEach(v=>{
+    const sec = document.createElement('section');
+    sec.className = 'panel';
+    sec.id = 'panel-'+v;
+    sec.innerHTML = vendorPanelHTML(v);
+    panels.appendChild(sec);
+  });
+  const dash = document.createElement('section');
+  dash.className = 'panel';
+  dash.id = 'panel-DASH';
+  dash.innerHTML = dashboardPanelHTML();
+  panels.appendChild(dash);
+
+  switchTab(VENDORS[0]);
+}
+
+function vendorPanelHTML(v){
+  return `
+    <div class="card guide">
+      <b>How to use</b> — Drag &amp; drop files below (or click to browse) to add them to the shared storage. You can select/drop multiple files at once, and existing files are never deleted — everything keeps accumulating as history. Alarm list Excel files (.xlsx) are automatically parsed, and the most recently uploaded valid alarm list is reflected in the dashboard. Other file types (PPT, Word, PDF, etc.) are stored for shared reference only and are not used in the dashboard.
+      <b>File size limit: up to 25MB per file</b> (large files are split into chunks in the shared storage automatically).
+      <b>Anyone who opens this link can view and upload to the same list, so please share the link only with internal stakeholders.</b>
+    </div>
+    <div class="card">
+      <div class="dropzone" id="dropzone-${v}">
+        📥 Drag &amp; drop files here, or click to choose files (multiple files allowed)<br>
+        <span class="muted" style="font-size:11.5px;">.xlsx alarm lists update the dashboard · other files (pptx, docx, pdf, etc.) are stored for reference only · up to 25MB per file</span>
+      </div>
+      <input type="file" id="file-${v}" accept=".xlsx,.xls,.pptx,.ppt,.docx,.doc,.pdf" multiple style="display:none;">
+      <div class="toolbar">
+        <button class="btn secondary" data-action="refresh" data-vendor="${v}">🔄 Refresh</button>
+      </div>
+      <div class="fileinfo" id="syncstatus-${v}">Checking shared storage...</div>
+      <div class="fileinfo" id="currentinfo-${v}" style="margin-top:4px;"></div>
+      <div class="tablewrap" style="margin-top:12px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:50px;">No.</th>
+              <th>File Name</th>
+              <th style="width:180px;">Upload Time</th>
+              <th style="width:150px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="filelist-${v}"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function dashboardPanelHTML(){
+  return `
+   <div class="dashwrap">
+    <aside class="dashside">
+      <div class="card">
+        <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>🔎 Filters</span>
+          <button class="btn gray sm" id="filterClear">Clear</button>
+        </h3>
+        <div class="muted" id="filterSummary" style="font-size:11.5px;font-weight:600;margin-bottom:8px;"></div>
+        <div class="filterbox" style="margin-bottom:12px;">
+          <div class="ftitle"><span>📅 Date</span><button class="btn gray sm" id="rangeReset">All</button></div>
+          <label style="font-size:11px;display:block;">From<input type="date" id="dateStart" class="filtersearch" style="margin:2px 0 6px;width:100%;max-width:100%;"></label>
+          <label style="font-size:11px;display:block;">To<input type="date" id="dateEnd" class="filtersearch" style="margin:2px 0 0;width:100%;max-width:100%;"></label>
+          <div class="rangeslider" id="dateSlider">
+            <div class="track"></div>
+            <div class="trackfill" id="dateFill"></div>
+            <input type="range" id="sliderStart" min="0" max="0" value="0" step="1">
+            <input type="range" id="sliderEnd" min="0" max="0" value="0" step="1">
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:2px;">Selected: <span id="rangeLabel" style="color:#1d4ed8;font-weight:700;">All</span></div>
+        </div>
+        <div class="filterbox" style="margin-bottom:12px;">
+          <div class="ftitle"><span>🏢 OEM (Vendor)</span><button class="btn secondary sm" id="dashRefresh" title="Refresh">↻</button></div>
+          <label class="filterall"><input type="checkbox" id="vendorAll" checked> (All)</label>
+          <div class="filterlist" style="max-height:none;border-top:none;">
+            ${VENDORS.map(v=>`<label><input type="checkbox" class="vendoropt" value="${v}" checked> ${v}</label>`).join('')}
+          </div>
+        </div>
+        <div class="filtergrid" id="filterGrid"></div>
+      </div>
+    </aside>
+    <div class="dashmain">
+      <div style="margin-bottom:12px;"><button id="defBtn" class="btn secondary sm" style="cursor:pointer;">📖 Status &amp; Cause Definitions</button></div>
+    <div class="card" id="qaCard" style="border-color:#c9dcff;background:#f7faff;">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span id="qaTitle">💬 Ask a Question</span>
+        <button class="btn secondary sm" id="qaExport" style="display:none;">⬇ Excel</button>
+      </h3>
+      <p class="muted" id="qaHelp" style="margin-top:-4px;font-size:12px;line-height:1.6;"></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="qaInput" style="flex:1;min-width:260px;margin:0;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;">
+        <button class="btn sm" id="qaRun">Generate report</button>
+      </div>
+      <div id="qaResult" style="margin-top:12px;"></div>
+    </div>
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>■ Daily Alarm Count <span class="muted" style="font-size:11.5px;font-weight:400;">— selected period; set range in the 📅 Date filter</span></span>
+        <button class="btn secondary sm" id="expDaily">⬇ Excel</button>
+      </h3>
+      <p class="muted" style="margin-top:-6px;font-size:11.5px;">Click a bar to see that day's alarms. <b>Ctrl/Cmd-click</b> to toggle multiple days, <b>Shift-click</b> to select a range.</p>
+      <div class="chartbox" style="height:220px;"><canvas id="chartDaily"></canvas></div>
+      <div id="dailyBarReport" style="display:none;margin-top:10px;"></div>
+    </div>
+    <div class="card" id="narrativeBox">Loading data...</div>
+    <div class="kpis" id="kpiRow"></div>
+    <div class="grid2">
+      <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Alarm Occurrence by Cause (selected period)</span><button class="btn secondary sm" id="expCause">⬇ Excel</button></h3>
+        <p class="muted" style="margin-top:-6px;font-size:11.5px;">Click a bar to see where (locations) that cause occurred. <b>Ctrl/Cmd-click</b> to toggle multiple causes, <b>Shift-click</b> to select a range — the daily trend below stacks the selected causes in their own colors.</p>
+        <div class="chartbox" style="height:280px;"><canvas id="chartCause"></canvas></div>
+        <div id="causePct" style="margin-top:8px;line-height:1.9;"></div></div>
+      <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Alarm Occurrence by Status (selected period)</span><button class="btn secondary sm" id="expImprove">⬇ Excel</button></h3>
+        <p class="muted" style="margin-top:-6px;font-size:11px;">Click a status segment (e.g. On-Going) within a cause to see those alarms. <b>Ctrl/Cmd-click</b> to toggle multiple, <b>Shift-click</b> for a cause range within the same status.</p>
+        <div class="chartbox" style="height:280px;"><canvas id="chartImprove"></canvas></div>
+        <div id="improveBarReport" style="display:none;margin-top:10px;"></div></div>
+    </div>
+    <div class="card" id="locationReportCard" style="display:none;">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span id="locReportTitle">■ Location Report</span>
+        <span>
+          <button class="btn secondary sm" id="locExportCsv">⬇ CSV</button>
+          <button class="btn secondary sm" id="locExportXlsx">⬇ Excel</button>
+          <button class="btn gray sm" id="locReportClose">✕ Close</button>
+        </span>
+      </h3>
+      <div style="margin-bottom:12px;">
+        <div id="causeDailyTitle" style="font-size:12.5px;font-weight:700;margin-bottom:4px;">Daily trend for this cause (selected period)</div>
+        <div class="chartbox" style="height:160px;"><canvas id="causeDailyChart"></canvas></div>
+      </div>
+      <div id="locReportBody"></div>
+    </div>
+    <div class="grid2">
+      <div class="card" id="vendorCauseCard"><h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Alarm by Vendor &amp; Cause (selected period)</span><button class="btn secondary sm" id="expVendorCause">⬇ Excel</button></h3>
+        <p class="muted" style="margin-top:-6px;font-size:11px;">Click a cause segment to see those alarms. <b>Ctrl/Cmd-click</b> to toggle multiple, <b>Shift-click</b> for a vendor range within the same cause.</p>
+        <div class="chartbox" style="height:300px;"><canvas id="chartVendorCause"></canvas></div>
+        <div id="vendorCauseBarReport" style="display:none;margin-top:10px;"></div></div>
+      <div class="card" id="vendorStatusCard"><h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Alarm by Vendor &amp; Status (selected period)</span><button class="btn secondary sm" id="expVendorStatus">⬇ Excel</button></h3>
+        <p class="muted" style="margin-top:-6px;font-size:11px;">Click a status segment (e.g. On-Going) to see those alarms. <b>Ctrl/Cmd-click</b> to toggle multiple, <b>Shift-click</b> for a vendor range within the same status.</p>
+        <div class="chartbox" style="height:300px;"><canvas id="chartVendorStatus"></canvas></div>
+        <div id="vendorStatusBarReport" style="display:none;margin-top:10px;"></div></div>
+    </div>
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Daily Alarm Trend by Vendor (selected period)</span><button class="btn secondary sm" id="expTrend">⬇ Excel</button></h3>
+      <div class="chartbox" style="height:240px;"><canvas id="chartTrend"></canvas></div>
+    </div>
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>■ Top 10 Alarms (selected period)</span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          <button class="btn sm" id="topModeCase" data-mode="case">By case</button>
+          <button class="btn secondary sm" id="topModeAlarm" data-mode="alarm">By alarm name</button>
+          <button class="btn secondary sm" id="expTop">⬇ Excel</button>
+        </span>
+      </h3>
+      <div id="top5Table"></div>
+    </div>
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><span>■ Focus Alarms (Auto-recommended)</span><button class="btn secondary sm" id="expFocus">⬇ Excel</button></h3>
+      <p class="muted" style="margin-top:-4px;font-size:12.5px;">Priority is calculated from occurrence frequency in the selected period and current action status (in-progress/monitoring, etc.), with suggested next actions by status.</p>
+      <div id="focusList"></div>
+    </div>
+    </div>
+   </div>
+  `;
+}
+
+function switchTab(tab){
+  TABS.forEach(t=>{
+    document.getElementById('panel-'+t).classList.toggle('active', t===tab);
+  });
+  document.querySelectorAll('#tabnav button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tab===tab);
+  });
+  if(tab==='DASH') renderDashboard();
+}
+
+/* ===================== Vendor file list rendering ===================== */
+function statusBadge(val){
+  if(!val) return '<span class="muted">-</span>';
+  const color = STATUS_COLOR[val] || '#9ca3af';
+  return `<span class="badge" style="background:${color}">${esc(val)}</span>`;
+}
+function renderFileList(vendor){
+  const tbody = document.getElementById(`filelist-${vendor}`);
+  const files = state[vendor].files;
+  const curId = state[vendor].current?.fileId;
+  if(!files.length){
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">No files uploaded. Drag &amp; drop a file above to get started.</td></tr>`;
+  } else {
+    tbody.innerHTML = files.map((f,i)=>{
+      const icon = fileTypeIcon(f.fileType);
+      const isDashCurrent = curId && f.id === curId;
+      const tag = isDashCurrent
+        ? '<span class="filetype-tag dash">📊 Dashboard</span>'
+        : (f.isAlarmData ? '<span class="filetype-tag dash">Alarm Data</span>' : `<span class="filetype-tag other">${esc((f.fileType||'file').toUpperCase())}</span>`);
+      return `
+      <tr>
+        <td>${i+1}</td>
+        <td>${icon} ${esc(f.fileName)} ${tag}</td>
+        <td class="muted">${f.uploadedAt ? f.uploadedAt.toLocaleString('en-US') : '(saving...)'}</td>
+        <td>
+          <button class="btn gray sm" data-action="download-file" data-vendor="${vendor}" data-fileid="${f.id}">Download</button>
+          <button class="btn gray sm" style="color:#dc2626;" data-action="delete-file" data-vendor="${vendor}" data-fileid="${f.id}">Delete</button>
+        </td>
+      </tr>
+    `;}).join('');
+  }
+  const info = document.getElementById(`currentinfo-${vendor}`);
+  const cur = state[vendor].current;
+  if(cur){
+    const s = cur.summary;
+    const rangeStr = s && s.dataStart ? `${fmtDate(s.dataStart)} ~ ${fmtDate(s.dataEnd)}` : 'No period info';
+    info.innerHTML = `📊 Currently reflected in dashboard: <b>${esc(cur.fileName)}</b> · Data period: ${rangeStr} · ${cur.listRows.length} alarm items · ${(s?.total||0).toLocaleString('en-US')} total alarms`;
+  } else {
+    info.innerHTML = files.length ? '<span class="muted">No valid alarm list (.xlsx) found among the uploaded files yet — the dashboard has no data to show.</span>' : '';
+  }
+}
+
+/* ===================== File select (upload) / download / delete ===================== */
+const uploadingVendors = new Set();
+// Keep only the newest stored file for each filename (re-uploading replaces, never duplicates).
+async function dedupeVendorFiles(vendor){
+  const files = await fbListFiles(vendor); // newest first
+  const seen = new Set(); const toDelete = [];
+  files.forEach(f=>{ if(seen.has(f.fileName)) toDelete.push(f); else seen.add(f.fileName); });
+  for(const f of toDelete){
+    try{ await fbDeleteFile(vendor, f.id, f.chunkCount); }catch(e){ console.warn('dedupe delete failed', e); }
+  }
+}
+async function handleFilesSelect(vendor, fileList){
+  const files = Array.from(fileList || []);
+  if(!files.length) return;
+  if(!fbConfigured()){
+    alert('Cannot upload because Firebase is not configured. Please check FIREBASE_CONFIG at the top of the code.');
+    return;
+  }
+  if(uploadingVendors.has(vendor)) return;   // guard against duplicate/overlapping uploads
+  uploadingVendors.add(vendor);
+  try{
+  let ok = 0, fail = 0, skippedFormat = 0, tooLarge = 0;
+  for(let i=0;i<files.length;i++){
+    const file = files[i];
+    if(file.size > MAX_FILE_BYTES){
+      tooLarge++;
+      console.warn(`Skipped ${file.name}: ${(file.size/1024/1024).toFixed(1)}MB exceeds the ${(MAX_FILE_BYTES/1024).toFixed(0)}KB shared-storage limit.`);
+      continue;
+    }
+    setSyncStatus(vendor, `☁ Uploading ${i+1}/${files.length}: ${file.name}...`);
+    try{
+      const ext = fileExt(file.name);
+      const isSpreadsheet = ['xlsx','xls'].includes(ext);
+      let isAlarmData = false;
+      const buf = await file.arrayBuffer();
+      // Always upload the original file bytes as-is (never re-serialize via XLSX.write,
+      // which strips styles/formatting/merges). XLSX.read below is only used to validate
+      // the format and extract dashboard data — the parsed workbook is not what gets stored.
+      if(isSpreadsheet){
+        try{
+          const wb = XLSX.read(buf, {type:'array', cellDates:true});
+          parseVendorFile(wb, file.name); // validate standard alarm list format (throws if not)
+          isAlarmData = true;
+        }catch(e){
+          isAlarmData = false; // xlsx but not a recognized alarm list — still stored as a plain reference file
+          skippedFormat++;
+        }
+      }
+      const base64 = arrayBufferToBase64(buf);
+      await fbUploadFile(vendor, file.name, base64, ext, isAlarmData);
+      ok++;
+    }catch(err){
+      console.error(err);
+      fail++;
+    }
+  }
+  const input = document.getElementById(`file-${vendor}`);
+  if(input) input.value = '';
+  if(ok) { try{ await dedupeVendorFiles(vendor); }catch(e){ console.warn(e); } }
+  await refreshVendor(vendor);
+  renderDashboard();
+  if(tooLarge){
+    const sizeMB = (MAX_FILE_BYTES/1024/1024).toFixed(0);
+    alert(`${tooLarge} file(s) were not uploaded because they exceed the ${sizeMB}MB per-file limit.`);
+  }
+  if(fail){
+    setSyncStatus(vendor, `⚠ ${ok} uploaded, ${fail} failed${tooLarge?`, ${tooLarge} too large`:''}`, true);
+  } else if(skippedFormat || tooLarge){
+    setSyncStatus(vendor, `✅ ${ok} file(s) uploaded${skippedFormat?` (${skippedFormat} not in standard alarm list format — stored as reference only)`:''}${tooLarge?` · ${tooLarge} skipped (too large)`:''}`, tooLarge>0 && ok===0);
+  }
+  }finally{
+    uploadingVendors.delete(vendor);
+  }
+}
+async function downloadFile(vendor, fileId){
+  const f = state[vendor].files.find(x=>x.id===fileId);
+  if(!f) return;
+  try{
+    setSyncStatus(vendor, `⬇ Preparing download: ${f.fileName}...`);
+    const base64 = await fbGetFileBase64(vendor, f);
+    const bytes = base64ToUint8Array(base64);
+    const blob = new Blob([bytes], {type:'application/octet-stream'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = f.fileName || `${vendor}.xlsx`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setSyncStatus(vendor, `✅ Downloaded ${f.fileName}`);
+  }catch(err){
+    console.error(err);
+    setSyncStatus(vendor, '❌ Download error: ' + err.message, true);
+    alert('Download error: ' + err.message);
+  }
+}
+async function deleteFile(vendor, fileId){
+  if(!confirm('Delete this file? This cannot be undone.')) return;
+  const f = state[vendor].files.find(x=>x.id===fileId);
+  try{
+    await fbDeleteFile(vendor, fileId, f ? f.chunkCount : 0);
+    await refreshVendor(vendor);
+    renderDashboard();
+  }catch(err){
+    console.error(err);
+    alert('Delete failed: ' + err.message);
+  }
+}
+async function refreshVendor(vendor){
+  if(!fbConfigured()){
+    setSyncStatus(vendor, '⚠ Firebase is not configured. Please check FIREBASE_CONFIG at the top of the code.', true);
+    return;
+  }
+  setSyncStatus(vendor, '☁ Loading file list...');
+  try{
+    const files = await fbListFiles(vendor);
+    state[vendor].files = files;
+    const latestAlarm = files.find(f => f.isAlarmData);
+    if(latestAlarm){
+      const base64 = await fbGetFileBase64(vendor, latestAlarm);
+      const bytes = base64ToUint8Array(base64);
+      const wb = XLSX.read(bytes, {type:'array', cellDates:true});
+      const data = parseVendorFile(wb, latestAlarm.fileName);
+      data.fileId = latestAlarm.id;
+      state[vendor].current = data;
+      saveHistorySnapshot(vendor, data);
+    } else {
+      state[vendor].current = null;
+    }
+    renderFileList(vendor);
+    setSyncStatus(vendor, files.length ? `✅ Up to date (${files.length} files total) · ${new Date().toLocaleTimeString('en-US')}` : 'No files in shared storage. Please upload one first.');
+  }catch(err){
+    console.error(err);
+    setSyncStatus(vendor, '❌ Failed to load: ' + err.message, true);
+  }
+}
+
+/* ===================== Dashboard ===================== */
+// Selected analysis period (null = use full available data range). dashDates holds every
+// date that has data across the currently active vendors, in ascending order.
+let dashState = { start:null, end:null };
+let dashDates = [];
+// Slicer filters. Each set holds the EXCLUDED (unchecked) values → empty set = no filter,
+// and new/unseen values default to included. type/cause/aname are row-level; uid/mname
+// are location-level (filter individual occurrences by their Unit ID / machine name).
+const FILTER_FIELDS = ['type','status','cause','aname','case','mname','uid','cim'];
+const FILTER_LABEL = { type:'Machine Type', status:'Status', cause:'Alarm Reason (Cause)', aname:'Alarm Name', case:'Case No.', mname:'Machine Name', uid:'Unit ID', cim:'CIM (CIM/MES alarms)' };
+const dashFilters = { type:new Set(), status:new Set(), cause:new Set(), aname:new Set(), case:new Set(), mname:new Set(), uid:new Set(), cim:new Set(['CIM']) };
+// Normalized Case value for a row (empty -> '(none)').
+function caseVal(row){ const c = (row && row.caseNo); return (c!=null && String(c).trim()!=='') ? String(c).trim() : '(none)'; }
+function rowUnitIds(row){
+  const set = new Set();
+  const add = l => { const p = machinePrefix(l); if(p) set.add(String(p).trim().toUpperCase()); };
+  if(row){
+    (row.daily||[]).forEach(e=>(e.locations||[]).forEach(add));
+    if(row.location) String(row.location).split(/\r?\n/).forEach(add);
+    if(row.code) set.add(String(row.code).trim().toUpperCase());
+  }
+  return Array.from(set);
+}
+// Representative Unit ID for a row: the first one that exists in the Equipment Master,
+// else the first location Unit ID. This is the "Unit ID" shown/exported in reports.
+function rowUnitId(row){
+  const ids = rowUnitIds(row);
+  return ids[0] || '';
+}
+// CIM alarms = alarm name contains "CIM" or "MES" (case-insensitive).
+function isCimAlarm(name){ return /CIM|MES/i.test(String(name||'')); }
+function cimAlarmType(row){ return isCimAlarm(row && row.alarmName) ? 'CIM' : 'Non-CIM'; }
+function anyLocationFilter(){ return dashFilters.uid.size>0 || dashFilters.mname.size>0; }
+function rowExcludedByFilters(row){
+  return dashFilters.type.has(row.machine||'')
+      || dashFilters.status.has(normalizeStatus(row.status) || '(none)')
+      || dashFilters.cause.has(row.cause||'Unknown')
+      || dashFilters.aname.has(row.alarmName||'')
+      || dashFilters.case.has(caseVal(row))
+      || dashFilters.cim.has(cimAlarmType(row));
+}
+// Effective count + locations for one daily entry after location-level filters.
+function effEntry(e){
+  if(!anyLocationFilter()) return { count:e.count, locs:e.locations.slice() };
+  const locs = e.locations.filter(l => !dashFilters.uid.has(machinePrefix(l)) && !dashFilters.mname.has(machineName(l)));
+  return { count:locs.length, locs };
+}
+let lastStats = null;   // most recent computeRangeStats result (for chart clicks)
+let lastLocReport = null; // { cause, rangeLabel, rows:[[location,count],...] }
+let lastTrend = null;     // { rows:[[period,...vendorTotals]] } for export
+let lastTop = null;       // { header:[], rows:[[]] } for export
+let lastFocus = null;     // { header:[], rows:[[]] } for Focus Alarms export
+let selectedCauses = [];  // multi-select on the "Alarm Occurrence by Cause" chart
+let causeAnchorIdx = -1;  // anchor index for shift-range selection
+// ---- Multi-select state for the other click-to-drill-down charts (Ctrl=toggle, Shift=range) ----
+// Each selection is stored as an array of stable string keys (not indices), so it survives re-renders.
+let selectedDailyKeys = [];         // Daily Alarm Count — keys are dkey(date) strings
+let dailyAnchor = { key:null, idx:-1 };  // last plain/ctrl click, for shift-range math
+let selectedVendorStatusKeys = [];  // keys are "Vendor|Status"
+let vsAnchor = { key:null, idx:-1 };
+let selectedImproveKeys = [];       // Alarm Occurrence by Status — keys are "Cause|Status"
+let improveAnchor = { key:null, idx:-1 };
+let selectedVendorCauseKeys = [];   // Alarm by Vendor & Cause — keys are "Vendor|Cause"
+let vendorCauseAnchor = { key:null, idx:-1 };
+const inlineBarReportData = {};     // containerId -> { title, rows:[[]] } for CSV/Excel export
+// Generic Ctrl(toggle)/Shift(range) multi-select, shared by every drill-down-capable chart below.
+// Selections are tracked by stable string key (not index) so they survive chart re-renders.
+// sameGroupFn (optional) restricts shift-range to clicks within the same "row" (used by the
+// 2-D Vendor & Status chart, where a range only makes sense within one status at a time).
+function multiSelectClick(currentKeys, presentKeys, clickedKey, clickedIdx, anchor, evtNative, sameGroupFn){
+  const ne = evtNative || {};
+  if(ne.shiftKey && anchor.key!=null && (!sameGroupFn || sameGroupFn(anchor.key, clickedKey))){
+    const aIdx = presentKeys.indexOf(anchor.key);
+    if(aIdx>=0){
+      const a=Math.min(aIdx,clickedIdx), b=Math.max(aIdx,clickedIdx);
+      return presentKeys.slice(a,b+1);
+    }
+  }
+  if(ne.ctrlKey || ne.metaKey){
+    const next = currentKeys.slice();
+    const p = next.indexOf(clickedKey);
+    if(p>=0) next.splice(p,1); else next.push(clickedKey);
+    anchor.key = clickedKey; anchor.idx = clickedIdx;
+    return next;
+  }
+  anchor.key = clickedKey; anchor.idx = clickedIdx;
+  return (currentKeys.length===1 && currentKeys[0]===clickedKey) ? [] : [clickedKey];
+}
+let topMode = 'case';     // 'case' = per alarm case, 'alarm' = aggregated by alarm name
+// Convert '#rrggbb' to an rgba() string with the given alpha (for faded/unselected bars).
+function hexToRgba(hex, a){
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex||''));
+  if(!m) return hex;
+  const n = parseInt(m[1],16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+// Vendors (OEM) chosen via the sidebar checkboxes. Starts with all selected.
+const selectedVendors = new Set(VENDORS);
+// Active = selected AND has uploaded alarm data. (arg kept for backward-compat, ignored)
+function activeVendors(){
+  return VENDORS.filter(v => selectedVendors.has(v) && state[v] && state[v].current);
+}
+function destroyChart(id){ if(chartInstances[id]){ chartInstances[id].destroy(); delete chartInstances[id]; } }
+// Round a value up to a "nice" axis maximum so two charts can share the same Y scale.
+function niceMax(v){
+  if(!(v>0)) return 10;
+  if(v<=1000) return Math.ceil(v/100)*100;
+  if(v<=5000) return Math.ceil(v/500)*500;
+  return Math.ceil(v/1000)*1000;
+}
+function dkey(d){ return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+function causeColor(cause){ const i = CAUSE_LIST.indexOf(cause); return i>=0 ? CAUSE_COLORS[i] : '#9ca3af'; }
+function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+
+// Every date (with data) across the active vendors, ascending.
+function getAllDataDates(vendors){
+  const map = new Map();
+  vendors.forEach(v=>{
+    (state[v].current.listRows||[]).forEach(row=>{
+      (row.daily||[]).forEach(e=>{ if(e.count>0) map.set(dkey(e.date), e.date); });
+    });
+  });
+  return Array.from(map.values()).sort((a,b)=>a-b);
+}
+// Resolve the effective [start,end] for the dashboard (selection or full range).
+function getSelectedRange(vendors){
+  if(dashState.start && dashState.end) return { start: dashState.start, end: dashState.end };
+  if(dashDates.length) return { start: dashDates[0], end: dashDates[dashDates.length-1] };
+  return { start:null, end:null };
+}
+// Aggregate everything for a [start,end] window from the per-day list data.
+function computeRangeStats(vendors, start, end){
+  const inRange = d => (!start || d>=start) && (!end || d<=end);
+  let total = 0;
+  // locByCause[cause] and unspecByCause[cause] are objects keyed by "locationobservedIssue"
+  // (or just "observedIssue" for unspecified) → count, so the location report can show
+  // the Observed Issue / Cause text alongside each location.
+  const SEP = '';
+  const byCause = {}, locByCause = {}, unspecByCause = {}, unspecTotalByCause = {}, statusByCause = {}, rows = [], dailyMap = {}, causeDailyByCause = {}, statusDailyByStatus = {};
+  vendors.forEach(v=>{
+    (state[v].current.listRows||[]).forEach(row=>{
+      if(rowExcludedByFilters(row)) return;   // row-level slicer filters
+      const rowCause = row.cause || 'Unknown';
+      const rowStatus = normalizeStatus(row.status) || '(none)';
+      let sum = 0; const locs = [];
+      (row.daily||[]).forEach(e=>{
+        if(inRange(e.date) && e.count>0){
+          const ef = effEntry(e);            // apply location-level slicer filters
+          if(ef.count<=0) return;
+          sum += ef.count; total += ef.count;
+          const k = dkey(e.date);
+          if(!dailyMap[k]) dailyMap[k] = { date:e.date, count:0 };
+          dailyMap[k].count += ef.count;
+          const cd = (causeDailyByCause[rowCause] = causeDailyByCause[rowCause] || {});
+          if(!cd[k]) cd[k] = { date:e.date, count:0 };
+          cd[k].count += ef.count;
+          const sd = (statusDailyByStatus[rowStatus] = statusDailyByStatus[rowStatus] || {});
+          if(!sd[k]) sd[k] = { date:e.date, count:0 };
+          sd[k].count += ef.count;
+          ef.locs.forEach(l=>locs.push(l));
+        }
+      });
+      if(sum>0){
+        const cause = row.cause || 'Unknown';
+        const issue = (row.observedIssue != null ? String(row.observedIssue).trim() : '');
+        const alarmNm = (row.alarmName != null ? String(row.alarmName).trim() : '');
+        const st = normalizeStatus(row.status) || '(none)';
+        byCause[cause] = (byCause[cause]||0) + sum;
+        // location keys carry status + observed issue + alarm name so the report can show them per row.
+        const lo = (locByCause[cause] = locByCause[cause] || {});
+        locs.forEach(l=>{ const key = l + SEP + st + SEP + issue + SEP + alarmNm; lo[key] = (lo[key]||0) + 1; });
+        const unspec = sum - locs.length;   // occurrences with no recorded location
+        if(unspec>0){
+          unspecTotalByCause[cause] = (unspecTotalByCause[cause]||0) + unspec;
+          const ui = (unspecByCause[cause] = unspecByCause[cause] || {});
+          const key = SEP + st + SEP + issue + SEP + alarmNm;
+          ui[key] = (ui[key]||0) + unspec;
+        }
+        // Status split by OCCURRENCE count (so it matches the "by cause" occurrence totals).
+        statusByCause[cause] = statusByCause[cause] || {};
+        statusByCause[cause][st] = (statusByCause[cause][st]||0) + sum;
+        rows.push({ vendor:v, row, sum, status:st });
+      }
+    });
+  });
+  const dailyTotals = Object.values(dailyMap).sort((a,b)=>a.date-b.date);
+  return { total, byCause, locByCause, unspecByCause, unspecTotalByCause, statusByCause, causeDailyByCause, statusDailyByStatus, rows, dailyTotals, start, end, SEP };
+}
+// Total for the equally-long window immediately preceding [start,end] (for the delta KPI).
+function prevPeriodTotal(vendors, start, end){
+  if(!start || !end) return null;
+  const lenDays = Math.round((end - start)/86400000) + 1;
+  const prevEnd = new Date(start); prevEnd.setDate(prevEnd.getDate()-1);
+  const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate()-(lenDays-1));
+  const st = computeRangeStats(vendors, prevStart, prevEnd);
+  return { total: st.total, prevStart, prevEnd };
+}
+
+function renderKPIs(vendors, stats, range){
+  const box = document.getElementById('kpiRow');
+  if(!vendors.length){
+    box.innerHTML = `<div class="kpi"><div class="label">Notice</div><div class="value" style="font-size:14px;">No data uploaded</div></div>`;
+    return;
+  }
+  const days = (range.start && range.end) ? Math.round((range.end-range.start)/86400000)+1 : 0;
+  const avg = days ? Math.round(stats.total/days) : 0;
+  let ongoing=0, monitoring=0;
+  Object.values(stats.statusByCause).forEach(st=>{ ongoing += st['On-Going']||0; monitoring += st['Monitoring']||0; });
+  const prev = prevPeriodTotal(vendors, range.start, range.end);
+  let deltaHTML = '<span class="delta flat">No prior period</span>';
+  if(prev && prev.total>0){
+    const diff = stats.total - prev.total;
+    const pct = Math.round((diff/prev.total)*100);
+    const cls = diff>0?'up':(diff<0?'down':'flat');
+    const arrow = diff>0?'▲':(diff<0?'▼':'-');
+    deltaHTML = `<span class="delta ${cls}">vs prev ${days}d ${arrow} ${Math.abs(pct)}% (${diff>0?'+':''}${diff})</span>`;
+  }
+  box.innerHTML = `
+    <div class="kpi"><div class="label">Selected Period</div><div class="value" style="font-size:17px;">${range.start?`${fmtDate(range.start)} ~ ${fmtDate(range.end)}`:'-'}</div><div class="delta flat">${days} day(s)</div></div>
+    <div class="kpi"><div class="label">Total Alarms (period)</div><div class="value">${stats.total.toLocaleString('en-US')}</div>${deltaHTML}</div>
+    <div class="kpi"><div class="label">Daily Average</div><div class="value">${avg.toLocaleString('en-US')}</div></div>
+    <div class="kpi"><div class="label">Incomplete (In-progress + Monitoring)</div><div class="value" style="color:#ea580c;">${(ongoing+monitoring).toLocaleString('en-US')}</div></div>
+    <div class="kpi"><div class="label">Vendors with Data</div><div class="value" style="font-size:17px;">${vendors.join(', ')}</div></div>
+  `;
+}
+
+// Daily bar chart — shows ONLY the currently selected period (widen/move via the From/To
+// dropdowns, which always list every available date). Dragging narrows within the shown bars.
+function renderDailyChart(vendors){
+  const canvas = document.getElementById('chartDaily');
+  destroyChart('chartDaily');
+  if(!dashDates.length){ return; }
+  const range = getSelectedRange(vendors);
+  const visible = dashDates.filter(d => (!range.start || d>=range.start) && (!range.end || d<=range.end));
+  const dates = visible.length ? visible : dashDates;
+  const full = computeRangeStats(vendors, dates[0], dates[dates.length-1]);
+  const totalByKey = {}; full.dailyTotals.forEach(d=>{ totalByKey[dkey(d.date)] = d.count; });
+  const labels = dates.map(d=>fmtDate(d));
+  const data = dates.map(d=> totalByKey[dkey(d)] || 0);
+  const dailyClickHandler = (evt, els)=>{
+    if(!els.length) return;
+    const idx = els[0].index;
+    const key = dkey(dates[idx]);
+    const present = dates.map(dkey);
+    const ne = (evt && evt.native) || evt || {};
+    selectedDailyKeys = multiSelectClick(selectedDailyKeys, present, key, idx, dailyAnchor, ne);
+    updateDailySelectionUI();
+  };
+  const chart = new Chart(canvas, {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'Alarms/day', data, backgroundColor:'#93c5fd', borderColor:'#2563eb', borderWidth:1 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:16 } },
+      onClick:dailyClickHandler,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ title:(it)=>labels[it[0].dataIndex] } } },
+      scales:{ y:{ beginAtZero:true } }
+    },
+    plugins:[valueLabelsPlugin]
+  });
+  chart.$dates = dates;   // the drag handler maps pixels → these dates; also used by the click drill-down
+  chart.$vendors = vendors;
+  chart.update('none');
+  chartInstances['chartDaily'] = chart;
+  updateDailySelectionUI();   // re-apply/refresh any existing selection (colors + inline report)
+}
+
+// Small overview chart across the FULL data period; you drag on it to pick a range.
+// The current selection is highlighted via the brush overlay.
+function renderOverviewChart(vendors){
+  destroyChart('chartOverview');
+  const canvas = document.getElementById('chartOverview');
+  if(!canvas || !dashDates.length) return;
+  const full = computeRangeStats(vendors, dashDates[0], dashDates[dashDates.length-1]);
+  const totalByKey = {}; full.dailyTotals.forEach(d=>{ totalByKey[dkey(d.date)] = d.count; });
+  const labels = dashDates.map(d=>fmtDate(d));
+  const data = dashDates.map(d=> totalByKey[dkey(d)] || 0);
+  const chart = new Chart(canvas, {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'Alarms/day', data, backgroundColor:'#c7d7f5', borderColor:'#93c5fd', borderWidth:1 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ title:(it)=>labels[it[0].dataIndex] } } },
+      scales:{ x:{ ticks:{ maxTicksLimit:12, font:{size:9} } }, y:{ display:false, beginAtZero:true } }
+    }
+  });
+  chart.$dates = dashDates;
+  // highlight the current selection
+  if(dashState.start && dashState.end){
+    const a = dashDates.findIndex(d=>sameDay(d, dashState.start));
+    const b = dashDates.findIndex(d=>sameDay(d, dashState.end));
+    if(a>=0 && b>=0) chart.$brush = { a:Math.min(a,b), b:Math.max(a,b) };
+  } else {
+    chart.$brush = { a:0, b:dashDates.length-1 };
+  }
+  chart.update('none');
+  chartInstances['chartOverview'] = chart;
+}
+
+// Bar colors for the cause chart: full color when unselected-or-selected, faded for
+// non-selected bars once a selection exists.
+function causeBarColors(present){
+  if(!selectedCauses.length) return present.map(causeColor);
+  return present.map(c=> selectedCauses.includes(c) ? causeColor(c) : hexToRgba(causeColor(c), 0.20));
+}
+// After a selection change: recolor the bars and open the combined multi-cause report.
+// doScroll is true only for an explicit user click, so re-renders never move the page.
+function updateCauseSelectionUI(present, doScroll){
+  const ch = chartInstances['chartCause'];
+  if(ch){ ch.data.datasets[0].backgroundColor = causeBarColors(present); ch.update('none'); }
+  if(selectedCauses.length){ showLocationReport(selectedCauses.slice(), doScroll); }
+  else { const card = document.getElementById('locationReportCard'); if(card) card.style.display = 'none'; }
+}
+function renderCauseCharts(vendors, stats){
+  // Ordered by CAUSE_LIST but only causes that have data (plus any extra causes seen).
+  const present = CAUSE_LIST.filter(c => stats.byCause[c]>0)
+    .concat(Object.keys(stats.byCause).filter(c=>!CAUSE_LIST.includes(c) && stats.byCause[c]>0));
+  const labels = present, vals = present.map(c=>stats.byCause[c]);
+  const total = vals.reduce((a,b)=>a+b,0) || 1;
+  const yMax = niceMax(Math.max(0, ...Object.values(stats.byCause)));
+  // Keep only selected causes that still have data in the current range.
+  selectedCauses = selectedCauses.filter(c=>present.includes(c));
+  window.lastCausePresent = present;
+  if(causeAnchorIdx >= present.length) causeAnchorIdx = -1;
+  // Plain click = single select; Ctrl/Cmd = toggle; Shift = range from the anchor.
+  const clickHandler = (evt, els)=>{
+    if(!els.length) return;
+    const idx = els[0].index, cause = present[idx];
+    const ne = (evt && evt.native) || evt || {};
+    if(ne.shiftKey && causeAnchorIdx >= 0){
+      const a = Math.min(causeAnchorIdx, idx), b = Math.max(causeAnchorIdx, idx);
+      selectedCauses = present.slice(a, b+1);
+    } else if(ne.ctrlKey || ne.metaKey){
+      const p = selectedCauses.indexOf(cause);
+      if(p >= 0) selectedCauses.splice(p, 1); else selectedCauses.push(cause);
+      causeAnchorIdx = idx;
+    } else {
+      selectedCauses = (selectedCauses.length===1 && selectedCauses[0]===cause) ? [] : [cause];
+      causeAnchorIdx = idx;
+    }
+    updateCauseSelectionUI(present, true);   // explicit click -> allow scroll
+  };
+
+  destroyChart('chartCause');
+  chartInstances['chartCause'] = new Chart(document.getElementById('chartCause'), {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'Alarms', data:vals, backgroundColor: causeBarColors(present) }] },
+    options:{ responsive:true, maintainAspectRatio:false, onClick:clickHandler,
+      layout:{ padding:{ top:16 } },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(it)=>`${it.parsed.y} alarms (${Math.round(it.parsed.y/total*100)}%)` } } },
+      scales:{ y:{ beginAtZero:true, max:yMax, ticks:{ stepSize: yMax/4 } } } },
+    plugins:[valueLabelsPlugin]
+  });
+  // Re-open / refresh the combined report if there is an active selection.
+  if(selectedCauses.length) updateCauseSelectionUI(present);
+
+  // Per-cause percentage breakdown (replaces the old horizontal share chart).
+  const pctEl = document.getElementById('causePct');
+  if(pctEl){
+    const sorted = present.map(c=>[c, stats.byCause[c]]).sort((a,b)=>b[1]-a[1]);
+    pctEl.innerHTML = sorted.map(([c,n])=>
+      `<span style="display:inline-block;margin:2px 8px 2px 0;font-size:12px;">
+         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${causeColor(c)};margin-right:4px;vertical-align:middle;"></span>
+         ${esc(c)} <b>${Math.round(n/total*100)}%</b> <span class="muted">(${n})</span></span>`
+    ).join('');
+  }
+}
+
+function renderImproveChart(vendors, stats, range){
+  // On-Going first = drawn at the BOTTOM of each stacked bar.
+  const KNOWN = ['On-Going','Monitoring','Unavoidable','Operational','Completed'];
+  const causes = CAUSE_LIST.filter(c => stats.statusByCause[c])
+    .concat(Object.keys(stats.statusByCause).filter(c=>!CAUSE_LIST.includes(c)));
+  // Include every status actually present (so stacked totals equal the cause occurrence totals).
+  const extra = new Set();
+  causes.forEach(c=> Object.keys(stats.statusByCause[c]||{}).forEach(s=>{ if(!KNOWN.includes(s)) extra.add(s); }));
+  const statuses = KNOWN.concat(Array.from(extra));
+  const totals = {}; statuses.forEach(s=>totals[s]=causes.map(c=> stats.statusByCause[c]?.[s] || 0));
+  const improveMax = niceMax(Math.max(0, ...Object.values(stats.byCause)));
+  const statusColor = s => STATUS_COLOR[s] || (s==='(none)' ? '#cbd5e1' : '#9ca3af');
+  destroyChart('chartImprove');
+  // Same "index"-mode caveat as the Vendor & Status chart: els[0] from onClick always reflects
+  // dataset 0, so a real hit-test (getElementsAtEventForMode) is needed to know which status
+  // segment was actually clicked for a given cause bar.
+  const improveClickHandler = (evt, els, chartArg)=>{
+    const c = chartArg || chartInstances['chartImprove'];
+    let hit = els && els[0];
+    if(c && typeof c.getElementsAtEventForMode === 'function'){
+      const pts = c.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, true);
+      if(pts.length) hit = pts[0];
+    }
+    if(!hit) return;
+    const idx = hit.index, dsIdx = hit.datasetIndex;
+    const cause = causes[idx], status = statuses[dsIdx];
+    const key = cause+'|'+status;
+    const presentForStatus = causes.map((cz,i)=>({cz,i})).filter(o=>(totals[status][o.i]||0)>0).map(o=>o.cz+'|'+status);
+    const clickedIdx = presentForStatus.indexOf(key);
+    if(clickedIdx<0) return;
+    const ne = (evt && evt.native) || evt || {};
+    selectedImproveKeys = multiSelectClick(selectedImproveKeys, presentForStatus, key, clickedIdx, improveAnchor, ne,
+      (a,b)=> a.slice(a.lastIndexOf('|')+1) === b.slice(b.lastIndexOf('|')+1));
+    updateImproveSelectionUI();
+  };
+  const ch = new Chart(document.getElementById('chartImprove'), {
+    type:'bar',
+    data:{ labels:causes, datasets: statuses.map(s=>({ label:s, data:totals[s], backgroundColor: statusColor(s) })) },
+    options:{ responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:16 } },
+      interaction:{ mode:'index', intersect:false },
+      onClick:improveClickHandler,
+      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:11, font:{size:10} } }, tooltip:{ mode:'index', intersect:false, callbacks:{
+        label:(it)=>{ const causeTotal = statuses.reduce((a,s)=>a+(totals[s][it.dataIndex]||0),0)||1; const v=it.parsed.y; if(!v) return null; return `${it.dataset.label}: ${v} (${Math.round(v/causeTotal*100)}%)`; }
+      } } },
+      scales:{ x:{stacked:true}, y:{stacked:true, beginAtZero:true, max: improveMax, ticks:{ stepSize: improveMax/4 } } } },
+    plugins:[stackTotalPlugin]
+  });
+  ch.$causes = causes; ch.$statuses = statuses; ch.$totals = totals; ch.$vendors = vendors; ch.$range = range;
+  chartInstances['chartImprove'] = ch;
+  updateImproveSelectionUI();   // re-apply/refresh any existing selection (colors + inline report)
+}
+
+/* ===================== Location report (click a cause bar) ===================== */
+function showLocationReport(cause, doScroll){
+  if(!lastStats) return;
+  // Accept a single cause (string) or several (array) for multi-select.
+  const causes = Array.isArray(cause) ? cause.slice() : [cause];
+  if(!causes.length){ const cc=document.getElementById('locationReportCard'); if(cc) cc.style.display='none'; return; }
+  const SEP = lastStats.SEP || '';
+  const splitKey = key => {
+    const parts = String(key).split(SEP);
+    return { loc: parts[0]||'', status: parts[1]||'', issue: parts[2]||'', alarm: parts[3]||'' };
+  };
+  // Include BOTH located rows AND unspecified rows so the table totals the full count.
+  let unspecTotal = 0; const rows = [];
+  causes.forEach(cz=>{
+    const locObj = lastStats.locByCause[cz] || {};
+    unspecTotal += lastStats.unspecTotalByCause?.[cz] || 0;
+    Object.entries(locObj).forEach(([key,count])=>{ const {loc,status,issue,alarm}=splitKey(key); rows.push([loc, machinePrefix(loc), machineName(loc), alarm, cz, status, issue, count]); });
+    Object.entries(lastStats.unspecByCause?.[cz] || {}).forEach(([key,count])=>{ const {status,issue,alarm}=splitKey(key); rows.push(['(unspecified)','','(no location recorded)', alarm, cz, status, issue, count]); });
+  });
+  rows.sort((a,b)=>b[7]-a[7]);
+  const causeLabel = causes.join(' + ');
+  const note = unspecTotal>0 ? (unspecTotal + ' of these occurrence(s) have no recorded equipment location (shown as "(unspecified)").') : '';
+  // status summary (by occurrence count) across the selected causes, with percentages
+  const statusAgg = {};
+  rows.forEach(r=>{ statusAgg[r[5]] = (statusAgg[r[5]]||0) + r[7]; });
+  const statusTotal = rows.reduce((a,r)=>a+r[7],0) || 1;
+  const statusOrder = ['On-Going','Monitoring','Unavoidable','Operational','Completed','(none)'];
+  const statusSummary = Object.entries(statusAgg)
+    .sort((a,b)=> (statusOrder.indexOf(a[0])+100*(statusOrder.indexOf(a[0])<0)) - (statusOrder.indexOf(b[0])+100*(statusOrder.indexOf(b[0])<0)))
+    .map(([s,n])=>`<span style="display:inline-block;margin-right:10px;"><span class="badge" style="background:${STATUS_COLOR[s]||'#9ca3af'}">${esc(s)}</span> <b>${n}</b> <span class="muted">(${Math.round(n/statusTotal*100)}%)</span></span>`).join('');
+  const rangeLabel = (lastStats.start && lastStats.end) ? `${fmtDate(lastStats.start)} ~ ${fmtDate(lastStats.end)}` : 'All';
+  lastLocReport = { cause: causeLabel, causes, rangeLabel, rows };
+  const card = document.getElementById('locationReportCard');
+  document.getElementById('locReportTitle').textContent = `■ Location Report — ${causeLabel}  (${rangeLabel})`;
+  const dailyTitleEl = document.getElementById('causeDailyTitle');
+  if(dailyTitleEl) dailyTitleEl.textContent = causes.length>1 ? `Daily trend by cause — ${causeLabel} (stacked, selected period)` : `Daily trend for ${causeLabel} (selected period)`;
+  const body = document.getElementById('locReportBody');
+  if(!rows.length){
+    body.innerHTML = '<p class="empty">No location data for the selected cause(s) in this period.</p>';
+  } else {
+    const total = rows.reduce((a,r)=>a+r[7],0);
+    const clip = s => { s = String(s||''); return s.length>160 ? s.slice(0,160)+'…' : s; };
+    body.innerHTML = `
+      <div style="margin-bottom:8px;font-size:12.5px;"><b>Selected causes:</b> ${causes.map(c=>`<span class="badge" style="background:${causeColor(c)}">${esc(c)}</span>`).join(' ')} &nbsp; <span class="muted">(${total} total)</span></div>
+      <div style="margin-bottom:8px;font-size:12.5px;"><b>Status:</b> ${statusSummary||'-'}</div>
+      ${note?`<p class="muted" style="margin-top:0;font-size:12px;">ℹ ${esc(note)}</p>`:''}
+      <div class="tablewrap" style="max-height:400px;"><table>
+      <thead><tr><th style="width:40px;">No.</th><th>Unit ID</th><th>Machine Code</th><th>Machine Name</th><th>Alarm Name</th><th>Cause</th><th style="width:90px;">Status</th><th style="min-width:240px;">Observed Issue / Cause</th><th style="width:64px;">Count</th><th style="width:64px;">Share</th></tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td><td>${statusBadge(r[5])}</td><td style="white-space:pre-wrap;" title="${esc(r[6])}">${esc(clip(r[6]))}</td><td class="num">${r[7]}</td><td class="num">${Math.round(r[7]/total*100)}%</td></tr>`).join('')}
+      <tr style="font-weight:800;background:#f8f9fb;"><td></td><td colspan="7">Total</td><td class="num">${total}</td><td class="num">100%</td></tr></tbody></table></div>`;
+  }
+  renderCauseDailyChart(causes);
+  card.style.display = '';
+  if(doScroll) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+// Daily chart of the selected cause(s). Multiple causes are stacked, each in its own color.
+function renderCauseDailyChart(cause){
+  destroyChart('causeDailyChart');
+  const canvas = document.getElementById('causeDailyChart');
+  if(!canvas || !lastStats) return;
+  const causes = Array.isArray(cause) ? cause.slice() : [cause];
+  // Build the list of days to show (continuous across the selected range).
+  const days = [];
+  if(lastStats.start && lastStats.end){
+    for(let d=new Date(lastStats.start); d<=lastStats.end; d.setDate(d.getDate()+1)) days.push(new Date(d));
+  } else {
+    const set = new Map();
+    causes.forEach(cz=>Object.values((lastStats.causeDailyByCause&&lastStats.causeDailyByCause[cz])||{}).forEach(o=>set.set(dkey(o.date), o.date)));
+    Array.from(set.values()).sort((a,b)=>a-b).forEach(d=>days.push(d));
+  }
+  const labels = days.map(fmtDate);
+  const datasets = causes.map(cz=>{
+    const cd = (lastStats.causeDailyByCause && lastStats.causeDailyByCause[cz]) || {};
+    return { label: cz, data: days.map(d=> cd[dkey(d)]?.count || 0), backgroundColor: causeColor(cz), stack: 'causes' };
+  });
+  const multi = causes.length>1;
+  chartInstances['causeDailyChart'] = new Chart(canvas, {
+    type:'bar',
+    data:{ labels, datasets },
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ display:multi, position:'bottom', labels:{ boxWidth:11, font:{size:10} } },
+        tooltip:{ mode:'index', intersect:false } },
+      scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
+  });
+}
+function locReportFilenameBase(){
+  const c = (lastLocReport?.cause || 'cause').replace(/[^\w가-힣]+/g,'_');
+  const r = (lastLocReport?.rangeLabel || '').replace(/[^\w]+/g,'');
+  return `location_report_${c}_${r}`;
+}
+const LOC_HEADER = ['Unit ID','Machine Code','Machine Name','Alarm Name','Cause','Status','Observed Issue / Cause','Alarm Count'];
+function exportLocReportCsv(){
+  if(!lastLocReport || !lastLocReport.rows.length) return;
+  const lines = [LOC_HEADER, ...lastLocReport.rows];
+  const csv = '﻿' + lines.map(row=>row.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  downloadBlob(csv, 'text/csv;charset=utf-8;', locReportFilenameBase()+'.csv');
+}
+function exportLocReportXlsx(){
+  if(!lastLocReport || !lastLocReport.rows.length) return;
+  const aoa = [
+    ['Cause', lastLocReport.cause], ['Period', lastLocReport.rangeLabel], [],
+    LOC_HEADER, ...lastLocReport.rows
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:22},{wch:16},{wch:32},{wch:16},{wch:12},{wch:60},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Location Report');
+  XLSX.writeFile(wb, locReportFilenameBase()+'.xlsx');
+}
+// ===================== Bar-click drill-down (Daily / Cause / Status / Vendor charts) =====================
+// Renders an inline alarm-list table directly under the clicked chart (inside containerId),
+// combining one or more selected bars/segments. Each entry: { vendors, start, end, statusFilter? }.
+//   statusFilter   — narrow to this single Status (used by the Vendor & Status chart)
+const BAR_HEADER = ['Unit ID','Machine Code','Machine Name','Alarm Name','Cause','Status','Observed Issue / Cause','Alarm Count'];
+function renderInlineBarReport(containerId, title, entries){
+  const box = document.getElementById(containerId);
+  if(!box) return;
+  if(!entries || !entries.length){ box.style.display = 'none'; box.innerHTML=''; delete inlineBarReportData[containerId]; return; }
+  const rows = []; let unspecTotal = 0;
+  entries.forEach(en=>{
+    if(!en.vendors || !en.vendors.length || !en.start) return;
+    const stats = computeRangeStats(en.vendors, en.start, en.end);
+    const SEP = stats.SEP || '';
+    Object.entries(stats.locByCause).forEach(([cause, locObj])=>{
+      if(en.causeFilter && cause !== en.causeFilter) return;
+      Object.entries(locObj).forEach(([key,count])=>{
+        const parts = String(key).split(SEP);
+        const loc = parts[0]||'', status = parts[1]||'', issue = parts[2]||'', alarm = parts[3]||'';
+        if(en.statusFilter && status !== en.statusFilter) return;
+        rows.push([loc, machinePrefix(loc), machineName(loc), alarm, cause, status, issue, count]);
+      });
+    });
+    if(!en.procList){
+      Object.entries(stats.unspecByCause||{}).forEach(([cause, ui])=>{
+        if(en.causeFilter && cause !== en.causeFilter) return;
+        Object.entries(ui).forEach(([key,count])=>{
+          const parts = String(key).split(SEP);
+          const status = parts[1]||'', issue = parts[2]||'', alarm = parts[3]||'';
+          if(en.statusFilter && status !== en.statusFilter) return;
+          unspecTotal += count;
+          rows.push(['(unspecified)','','(no location recorded)', alarm, cause, status, issue, count]);
+        });
+      });
+    }
+  });
+  rows.sort((a,b)=>b[7]-a[7]);
+  const total = rows.reduce((a,r)=>a+r[7],0);
+  inlineBarReportData[containerId] = { title, rows };
+  const clip = s => { s = String(s||''); return s.length>160 ? s.slice(0,160)+'…' : s; };
+  const note = unspecTotal>0 ? (unspecTotal + ' of these occurrence(s) have no recorded equipment location (shown as "(unspecified)").') : '';
+  const bodyHtml = !rows.length ? '<p class="empty">No alarms found for this selection.</p>' : `
+    <div style="margin-bottom:6px;font-size:12.5px;"><span class="muted">${total} total alarm(s)</span></div>
+    ${note?`<p class="muted" style="margin-top:0;font-size:12px;">ℹ ${esc(note)}</p>`:''}
+    <div class="tablewrap" style="max-height:340px;"><table>
+    <thead><tr><th style="width:36px;">No.</th><th>Unit ID</th><th>Machine Code</th><th>Machine Name</th><th>Alarm Name</th><th>Cause</th><th style="width:90px;">Status</th><th style="min-width:220px;">Observed Issue / Cause</th><th style="width:60px;">Count</th></tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td><td>${statusBadge(r[5])}</td><td style="white-space:pre-wrap;" title="${esc(r[6])}">${esc(clip(r[6]))}</td><td class="num">${r[7]}</td></tr>`).join('')}
+    <tr style="font-weight:800;background:#f8f9fb;"><td></td><td colspan="7">Total</td><td class="num">${total}</td></tr></tbody></table></div>`;
+  box.innerHTML = `
+    <div style="border-top:1px dashed #cbd5e1;padding-top:8px;margin-top:2px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+        <b style="font-size:12.5px;">■ ${esc(title)}</b>
+        <span>
+          <button class="btn secondary sm" data-inline-export="csv" data-target="${containerId}">⬇ CSV</button>
+          <button class="btn secondary sm" data-inline-export="xlsx" data-target="${containerId}">⬇ Excel</button>
+          <button class="btn gray sm" data-inline-close="${containerId}">✕</button>
+        </span>
+      </div>
+      ${bodyHtml}
+    </div>`;
+  box.style.display = '';
+}
+function inlineReportFilenameBase(containerId){
+  const d = inlineBarReportData[containerId];
+  const t = (d?.title || 'alarm_list').replace(/[^\w가-힣]+/g,'_');
+  return `alarm_list_${t}`;
+}
+function exportInlineReportCsv(containerId){
+  const d = inlineBarReportData[containerId];
+  if(!d || !d.rows.length) return;
+  const lines = [BAR_HEADER, ...d.rows];
+  const csv = '﻿' + lines.map(row=>row.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  downloadBlob(csv, 'text/csv;charset=utf-8;', inlineReportFilenameBase(containerId)+'.csv');
+}
+function exportInlineReportXlsx(containerId){
+  const d = inlineBarReportData[containerId];
+  if(!d || !d.rows.length) return;
+  const aoa = [ ['Report', d.title], [], BAR_HEADER, ...d.rows ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:22},{wch:16},{wch:32},{wch:16},{wch:12},{wch:12},{wch:60},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Alarm List');
+  XLSX.writeFile(wb, inlineReportFilenameBase(containerId)+'.xlsx');
+}
+// Daily Alarm Count — recolor bars + refresh/hide the inline report to match selectedDailyKeys.
+// resizeChart(): the inline report opening/closing can change how much vertical space is
+// available around the canvas; Chart.js's own update() does not always re-measure the canvas'
+// backing pixel size in that case, which can leave the plotted bars looking "stuck" larger or
+// smaller than the fixed chartbox. An explicit resize() forces it to re-measure and snap back.
+// Opening/closing an inline drill-down report can change the page's total height enough to make
+// a scrollbar appear or disappear, which shifts the available WIDTH for every chart on the page
+// (not just the one that was clicked) — a sibling chart in the same grid row can visibly end up
+// a slightly different size until something tells it to re-measure. So resizeChart() nudges both
+// the chart that changed AND every other currently-rendered chart, immediately and once more on
+// the next animation frame (in case this handler runs before the browser finishes reflowing).
+// Nudges just the one chart that changed to re-measure its (fixed-height) container. Cheap and
+// targeted on purpose — the actual "size doesn't come back" issue turned out to be a CSS
+// scrollbar-width layout shift (fixed above via `scrollbar-gutter:stable`), not a canvas resize
+// problem, so this stays minimal rather than re-resizing every chart on every click.
+function resizeChart(ch){
+  if(!ch || typeof ch.resize!=='function') return;
+  try{ ch.resize(); }catch(e){}
+}
+function updateDailySelectionUI(){
+  const ch = chartInstances['chartDaily'];
+  if(!ch || !ch.$dates) return;
+  const dates = ch.$dates, vendors = ch.$vendors;
+  const present = dates.map(dkey);
+  selectedDailyKeys = selectedDailyKeys.filter(k=>present.includes(k));
+  ch.data.datasets[0].backgroundColor = dates.map(d=>{
+    const k = dkey(d);
+    if(!selectedDailyKeys.length) return '#93c5fd';
+    return selectedDailyKeys.includes(k) ? '#2563eb' : hexToRgba('#93c5fd', 0.25);
+  });
+  ch.update('none');
+  if(!selectedDailyKeys.length){ renderInlineBarReport('dailyBarReport','',[]); }
+  else {
+    const selDates = dates.filter(d=>selectedDailyKeys.includes(dkey(d))).sort((a,b)=>a-b);
+    const entries = selDates.map(d=>({ vendors, start:d, end:d }));
+    renderInlineBarReport('dailyBarReport', `Daily Alarm List — ${selDates.map(fmtDate).join(', ')}`, entries);
+  }
+  resizeChart(ch);
+}
+// Alarm by Vendor & Status — 2-D grid keyed by "Vendor|Status"; shift-range is limited to one status.
+function updateVendorStatusSelectionUI(){
+  const ch = chartInstances['chartVendorStatus'];
+  if(!ch || !ch.$vendors) return;
+  const vendors = ch.$vendors, statuses = ch.$statuses, vendorStatus = ch.$vendorStatus, range = ch.$range;
+  const present = [];
+  statuses.forEach(s=> vendors.forEach((v,i)=>{ if((vendorStatus[i][s]||0)>0) present.push(v+'|'+s); }));
+  selectedVendorStatusKeys = selectedVendorStatusKeys.filter(k=>present.includes(k));
+  statuses.forEach((s,dsIdx)=>{
+    const base = STATUS_COLOR[s] || (s==='(none)' ? '#cbd5e1' : '#9ca3af');
+    ch.data.datasets[dsIdx].backgroundColor = vendors.map(v=>{
+      const key = v+'|'+s;
+      if(!selectedVendorStatusKeys.length) return base;
+      return selectedVendorStatusKeys.includes(key) ? base : hexToRgba(base, 0.15);
+    });
+  });
+  ch.update('none');
+  if(!selectedVendorStatusKeys.length || !range || !range.start){ renderInlineBarReport('vendorStatusBarReport','',[]); resizeChart(ch); return; }
+  const entries = selectedVendorStatusKeys.map(k=>{
+    const sepIdx = k.lastIndexOf('|'); const v = k.slice(0,sepIdx), st = k.slice(sepIdx+1);
+    return { vendors:[v], start:range.start, end:range.end, statusFilter:st };
+  });
+  renderInlineBarReport('vendorStatusBarReport', `Alarm List by Vendor & Status — ${selectedVendorStatusKeys.join(', ')}`, entries);
+  resizeChart(ch);
+}
+// Alarm Occurrence by Status — 2-D grid keyed by "Cause|Status"; shift-range is limited to one status.
+function updateImproveSelectionUI(){
+  const ch = chartInstances['chartImprove'];
+  if(!ch || !ch.$causes) return;
+  const causes = ch.$causes, statuses = ch.$statuses, totals = ch.$totals, vendors = ch.$vendors, range = ch.$range;
+  const present = [];
+  statuses.forEach(s=> causes.forEach((c,i)=>{ if((totals[s][i]||0)>0) present.push(c+'|'+s); }));
+  selectedImproveKeys = selectedImproveKeys.filter(k=>present.includes(k));
+  statuses.forEach((s,dsIdx)=>{
+    const base = STATUS_COLOR[s] || (s==='(none)' ? '#cbd5e1' : '#9ca3af');
+    ch.data.datasets[dsIdx].backgroundColor = causes.map(c=>{
+      const key = c+'|'+s;
+      if(!selectedImproveKeys.length) return base;
+      return selectedImproveKeys.includes(key) ? base : hexToRgba(base, 0.15);
+    });
+  });
+  ch.update('none');
+  if(!selectedImproveKeys.length || !vendors || !vendors.length || !range || !range.start){ renderInlineBarReport('improveBarReport','',[]); resizeChart(ch); return; }
+  const entries = selectedImproveKeys.map(k=>{
+    const sepIdx = k.lastIndexOf('|'); const cz = k.slice(0,sepIdx), st = k.slice(sepIdx+1);
+    return { vendors, start:range.start, end:range.end, causeFilter:cz, statusFilter:st };
+  });
+  renderInlineBarReport('improveBarReport', `Alarm List by Cause & Status — ${selectedImproveKeys.join(', ')}`, entries);
+  resizeChart(ch);
+}
+// Alarm by Vendor & Cause — 2-D grid keyed by "Vendor|Cause"; shift-range is limited to one cause.
+function updateVendorCauseSelectionUI(){
+  const ch = chartInstances['chartVendorCause'];
+  if(!ch || !ch.$vendors) return;
+  const vendors = ch.$vendors, causes = ch.$causes, per = ch.$per, range = ch.$range;
+  const present = [];
+  causes.forEach(cz=> vendors.forEach((v,i)=>{ if((per[i].byCause[cz]||0)>0) present.push(v+'|'+cz); }));
+  selectedVendorCauseKeys = selectedVendorCauseKeys.filter(k=>present.includes(k));
+  causes.forEach((cz,dsIdx)=>{
+    const base = causeColor(cz);
+    ch.data.datasets[dsIdx].backgroundColor = vendors.map(v=>{
+      const key = v+'|'+cz;
+      if(!selectedVendorCauseKeys.length) return base;
+      return selectedVendorCauseKeys.includes(key) ? base : hexToRgba(base, 0.15);
+    });
+  });
+  ch.update('none');
+  if(!selectedVendorCauseKeys.length || !range || !range.start){ renderInlineBarReport('vendorCauseBarReport','',[]); resizeChart(ch); return; }
+  const entries = selectedVendorCauseKeys.map(k=>{
+    const sepIdx = k.lastIndexOf('|'); const v = k.slice(0,sepIdx), cz = k.slice(sepIdx+1);
+    return { vendors:[v], start:range.start, end:range.end, causeFilter:cz };
+  });
+  renderInlineBarReport('vendorCauseBarReport', `Alarm List by Vendor & Cause — ${selectedVendorCauseKeys.join(', ')}`, entries);
+  resizeChart(ch);
+}
+// Close (✕) on any inline report also clears that chart's selection and resets its bar colors.
+function closeInlineBarReport(containerId){
+  if(containerId==='dailyBarReport'){ selectedDailyKeys=[]; dailyAnchor={key:null,idx:-1}; updateDailySelectionUI(); return; }
+  if(containerId==='vendorStatusBarReport'){ selectedVendorStatusKeys=[]; vsAnchor={key:null,idx:-1}; updateVendorStatusSelectionUI(); return; }
+  if(containerId==='improveBarReport'){ selectedImproveKeys=[]; improveAnchor={key:null,idx:-1}; updateImproveSelectionUI(); return; }
+  if(containerId==='vendorCauseBarReport'){ selectedVendorCauseKeys=[]; vendorCauseAnchor={key:null,idx:-1}; updateVendorCauseSelectionUI(); return; }
+  const box = document.getElementById(containerId);
+  if(box){ box.style.display='none'; box.innerHTML=''; }
+  delete inlineBarReportData[containerId];
+}
+// ---- generic export helpers (used by chart / top-alarm download buttons) ----
+function downloadBlob(content, type, filename){
+  const blob = new Blob([content], {type});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function exportAoaXlsx(aoa, sheetName, filename, cols){
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  if(cols) ws['!cols'] = cols;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
+}
+function rangeTag(){
+  return (lastStats && lastStats.start) ? `${fmtDate(lastStats.start)}-${fmtDate(lastStats.end)}`.replace(/\//g,'') : 'all';
+}
+function exportDailyXlsx(){
+  if(!lastStats) return;
+  const aoa = [['Date','Alarms'], ...lastStats.dailyTotals.map(d=>[fmtDateFull(d.date), d.count])];
+  exportAoaXlsx(aoa, 'Daily', `daily_alarms_${rangeTag()}.xlsx`, [{wch:14},{wch:10}]);
+}
+function exportCauseXlsx(){
+  if(!lastStats) return;
+  const tot = Object.values(lastStats.byCause).reduce((a,b)=>a+b,0)||1;
+  const rows = Object.entries(lastStats.byCause).sort((a,b)=>b[1]-a[1]);
+  const aoa = [['Cause','Alarms','Share %'], ...rows.map(([c,n])=>[c,n,Math.round(n/tot*100)])];
+  exportAoaXlsx(aoa, 'By Cause', `alarms_by_cause_${rangeTag()}.xlsx`, [{wch:20},{wch:10},{wch:10}]);
+}
+function exportImproveXlsx(){
+  if(!lastStats) return;
+  const sbc = lastStats.statusByCause;
+  const causes = Object.keys(sbc);
+  const statuses = ['Unavoidable','Operational','On-Going','Monitoring','Completed'];
+  const extra = new Set(); causes.forEach(c=>Object.keys(sbc[c]).forEach(s=>{ if(!statuses.includes(s)) extra.add(s); }));
+  const cols = statuses.concat(Array.from(extra));
+  const aoa = [['Cause', ...cols, 'Total'], ...causes.map(c=>{ const row=[c]; let t=0; cols.forEach(s=>{ const n=sbc[c][s]||0; row.push(n); t+=n; }); row.push(t); return row; })];
+  exportAoaXlsx(aoa, 'Improvement', `improvement_by_cause_${rangeTag()}.xlsx`, [{wch:20}].concat(cols.map(()=>({wch:12})),[{wch:10}]));
+}
+function exportTrendXlsx(){
+  if(!lastTrend || !lastTrend.rows.length) return;
+  exportAoaXlsx(lastTrend.rows, 'Daily Trend', `daily_trend_vendor_${rangeTag()}.xlsx`);
+}
+function exportVendorCauseXlsx(){
+  if(!window.lastVendorCause || !window.lastVendorCause.rows.length) return;
+  exportAoaXlsx(window.lastVendorCause.rows, 'Vendor x Cause', `vendor_by_cause_${rangeTag()}.xlsx`);
+}
+function exportVendorStatusXlsx(){
+  if(!window.lastVendorStatus || !window.lastVendorStatus.rows.length) return;
+  exportAoaXlsx(window.lastVendorStatus.rows, 'Vendor x Status', `vendor_by_status_${rangeTag()}.xlsx`);
+}
+function exportTopXlsx(){
+  if(!lastTop || !lastTop.rows.length) return;
+  exportAoaXlsx([lastTop.header, ...lastTop.rows], 'Top Alarms', `top_alarms_${rangeTag()}.xlsx`);
+}
+function exportFocusXlsx(){
+  if(!lastFocus || !lastFocus.rows.length) return;
+  exportAoaXlsx([lastFocus.header, ...lastFocus.rows], 'Focus Alarms', `focus_alarms_${rangeTag()}.xlsx`,
+    [{wch:6},{wch:10},{wch:22},{wch:32},{wch:8},{wch:16},{wch:12},{wch:12},{wch:48},{wch:40}]);
+}
+/* ===================== Natural-language Q&A report (rule-based, offline) ===================== */
+let lastQaReport = null;   // { header:[], rows:[[]] } for Excel export
+let lastQaQuery = '';      // last query text (re-run on language toggle)
+const QA_STATUS_ALIASES = { 'on-going':'On-Going','ongoing':'On-Going','on going':'On-Going','진행중':'On-Going','진행 중':'On-Going',
+  'monitoring':'Monitoring','모니터링':'Monitoring','관찰':'Monitoring',
+  'completed':'Completed','complete':'Completed','완료':'Completed',
+  'unavoidable':'Unavoidable','불가피':'Unavoidable',
+  'operational':'Operational','운영':'Operational' };
+const QA_STATUS_WEIGHT = { 'On-Going':1.0, 'Monitoring':0.7, 'Operational':0.15, 'Unavoidable':0.25, 'Completed':0.05, '(none)':0.6 };
+const QA_UNRESOLVED = new Set(['On-Going','Monitoring']);
+function qaDataRefDate(){
+  const dates = getAllDataDates(activeVendors());
+  return dates.length ? dates[dates.length-1] : new Date();
+}
+function qaDataYear(){ return qaDataRefDate().getFullYear(); }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+// Distinct Machine Type values in the data (row.machine = CNV/STO/AGV/OHS/DDA/TRS ...).
+function qaTypeValues(){
+  const s = new Set();
+  activeVendors().forEach(v=>(state[v].current.listRows||[]).forEach(row=>{ if(row.machine) s.add(String(row.machine).trim()); }));
+  return s;
+}
+// Parse explicit dates: YYYY-MM-DD / YYYY/MM/DD / M/D / M월 D일 -> {start,end} or null.
+function qaParseDates(text){
+  const tokens = [];
+  const re = /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})|(\d{1,2})\s*[.\/월]\s*(\d{1,2})\s*일?/g;
+  let m;
+  while((m = re.exec(text))){
+    if(m[1]) tokens.push(new Date(+m[1], +m[2]-1, +m[3]));
+    else tokens.push(new Date(qaDataYear(), +m[4]-1, +m[5]));
+  }
+  if(!tokens.length) return null;
+  tokens.sort((a,b)=>a-b);
+  return { start: tokens[0], end: tokens[tokens.length-1] };
+}
+// Resolve the date window: explicit dates win, else relative words (this/last week, etc.),
+// else the dashboard's currently selected range.
+function qaParseWhen(text){
+  const KR = UI_LANG==='KR';
+  const ex = qaParseDates(text);
+  if(ex) return { start:ex.start, end:ex.end, label:`${fmtDate(ex.start)} ~ ${fmtDate(ex.end)}` };
+  const ref = qaDataRefDate();
+  const wk = d => { const s=weekSunday(d); return { s, e:addDays(s,6) }; };
+  const lab = (s,e,w)=>({ start:s, end:e, label:`${w} (${fmtDate(s)}~${fmtDate(e)})` });
+  const t = ' '+text.toLowerCase()+' ';
+  if(/지난주|저번주|last week/.test(t)){ const w=wk(addDays(ref,-7)); return lab(w.s,w.e, KR?'지난주':'last week'); }
+  if(/이번주|금주|this week|this wk/.test(t)){ const w=wk(ref); return lab(w.s,w.e, KR?'이번주':'this week'); }
+  if(/지난달|전월|저번달|last month/.test(t)){ const s=new Date(ref.getFullYear(),ref.getMonth()-1,1), e=new Date(ref.getFullYear(),ref.getMonth(),0); return lab(s,e, KR?'지난달':'last month'); }
+  if(/이번달|금월|this month/.test(t)){ const s=new Date(ref.getFullYear(),ref.getMonth(),1), e=new Date(ref.getFullYear(),ref.getMonth()+1,0); return lab(s,e, KR?'이번달':'this month'); }
+  if(/어제|yesterday/.test(t)){ const d=addDays(ref,-1); return lab(d,d, KR?'어제':'yesterday'); }
+  if(/오늘|today/.test(t)){ return lab(ref,ref, KR?'오늘':'today'); }
+  return null;
+}
+function qaDetectCauses(text){
+  const s = text, out = new Set();
+  if(/process\s*equipment|공정\s*설비|공정설비/i.test(s)) out.add('Process Equipment');
+  if(/operator|작업자/i.test(s)) out.add('Operator');
+  if(/material|자재|원자재/i.test(s)) out.add('Material');
+  if(/utility|유틸/i.test(s)) out.add('Utility');
+  if(/environment|환경/i.test(s)) out.add('Environment');
+  if(/unknown|미상/i.test(s)) out.add('Unknown');
+  if(/\bIT\b/.test(s) || /it\s*기인/i.test(s)) out.add('IT');
+  const eqStripped = s.replace(/process\s*equipment|공정\s*설비|공정설비/ig,'');
+  if(/equipment|설비|장비/i.test(eqStripped)) out.add('Equipment');
+  return out;
+}
+function qaDetect(text){
+  const low = ' ' + text.toLowerCase() + ' ';
+  const up  = ' ' + text.toUpperCase() + ' ';
+  const vendors = new Set(), statuses = new Set(), types = new Set(), uids = new Set(), cims = new Set();
+  VENDORS.forEach(v=>{ if(low.includes(v.toLowerCase())) vendors.add(v); });
+  Object.entries(QA_STATUS_ALIASES).forEach(([k,val])=>{ if(low.includes(k)) statuses.add(val); });
+  // Machine Type = distinct row.machine values (CNV/STO/AGV/...), matched as whole words.
+  qaTypeValues().forEach(tp=>{ const w=String(tp).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); if(new RegExp('(^|[^A-Z0-9])'+w.toUpperCase()+'([^A-Z0-9]|$)').test(up)) types.add(tp); });
+  // Specific Unit IDs (e.g. G4PCNV33301) — 2 alnum + 4 letters + 5 digits, generic across sites.
+  let m; const ur=/[A-Z0-9]{2}[A-Z]{4}\d{5}/gi; while((m=ur.exec(text))) uids.add(m[0].toUpperCase());
+  // CIM / MES alarms.
+  if(/non-?cim|non-?mes|비\s*cim/i.test(text)) cims.add('Non-CIM');
+  else if(/\bcim\b|\bmes\b/i.test(text)) cims.add('CIM');
+  return { vendors, statuses, types, uids, cims };
+}
+// Words that are commands/filters, not alarm-name keywords. Leftover English tokens
+// after these are used to search the Alarm Name.
+const QA_STOPWORDS = new Set(('조치 조치내용 내용 내역 대응 대책 추천 제안 대안 방안 방향 개선 개선안 새로운 다른 현황 요약 중점 우선 관리 대상 알람 발생 추출 정리 리포트 관련 해줘 알려줘 보여줘 뽑아줘 그리고 기인 상태 공정 설비 벤더 '
+  +'action actions recommend recommendation recommendations alternative alternatives improve improvement improvements suggest suggestion suggestions status focus next week this last month today yesterday and give list extract about please show me the for of report on in is are it its alarm alarms cause causes vendor process type unit id count '
+  +'operator equipment material utility environment unknown cim mes manual auto ongoing going monitoring completed unavoidable operational cns cowin cnv sto agv ohs dda trs').split(/\s+/));
+// Extract leftover English keywords to match against the Alarm Name (e.g. "object position sensor").
+function qaTextTerms(text, det){
+  const toks = (' '+String(text).toLowerCase()+' ').match(/[a-z0-9_]{2,}/g) || [];
+  const uids = new Set(Array.from((det&&det.uids)||[]).map(u=>String(u).toLowerCase()));
+  const out=[], seen=new Set();
+  toks.forEach(raw=>{ let t=raw.replace(/^_+|_+$/g,''); if(t.length<2||/^\d+$/.test(t)||QA_STOPWORDS.has(t)||uids.has(t)||seen.has(t)) return; seen.add(t); out.push(t); });
+  return out;
+}
+// Is this an advisory question (wants a recommendation / status answer), not just a table?
+function qaIsAdvisory(text){
+  return /중점|추천|봐야|주의|우선|권고|현황|요약|어떤|무엇|어떻게|다음\s*주|다음주|차주|focus|recommend|priority|watch|status|summary|next\s*week|what\s+should|how\s+should/i.test(text);
+}
+function qaChip(txt, color){
+  return `<span class="badge" style="background:${color||'#2563eb'};margin:2px 4px 2px 0;">${esc(txt)}</span>`;
+}
+// Collect matching alarm occurrences for a window + filter set.
+function qaCollect(vendors, range, f){
+  const inRange = d => (!range.start || d>=range.start) && (!range.end || d<=range.end);
+  const items = []; let total = 0; const byCause = {}, byStatus = {};
+  vendors.forEach(v=>{
+    (state[v].current.listRows||[]).forEach(row=>{
+      if(f.terms && f.terms.length){ const nm=String(row.alarmName||'').toLowerCase(); if(!f.terms.every(t=>nm.includes(t))) return; }
+      if(f.types.size && !f.types.has(String(row.machine||'').trim())) return;
+      if(f.uids.size && !rowUnitIds(row).some(u=>f.uids.has(u))) return;
+      if(f.cims.size && !f.cims.has(cimAlarmType(row))) return;
+      const rc = row.cause || 'Unknown';
+      if(f.causes.size && !f.causes.has(rc)) return;
+      const rs = normalizeStatus(row.status) || '(none)';
+      if(f.statuses.size && !f.statuses.has(rs)) return;
+      let sum = 0;
+      (row.daily||[]).forEach(e=>{
+        if(!inRange(e.date) || !(e.count>0)) return;
+        sum += e.count;
+      });
+      if(sum>0){
+        items.push({ vendor:v, machine:row.machine||'', code:rowUnitId(row), alarmName:row.alarmName||'', caseNo:row.caseNo||'', cause:rc, status:rs, issue:String(issueText(row)||'').trim(), action:String(actionText(row)||'').trim(), count:sum });
+        total += sum; byCause[rc]=(byCause[rc]||0)+sum; byStatus[rs]=(byStatus[rs]||0)+sum;
+      }
+    });
+  });
+  items.sort((a,b)=>b.count-a.count);
+  return { items, total, byCause, byStatus };
+}
+// Localize the Q&A card labels for the current language.
+function qaApplyLang(){
+  const KR = UI_LANG==='KR';
+  const t = document.getElementById('qaTitle'); if(t) t.textContent = KR ? '💬 질문형 리포트' : '💬 Ask a Question';
+  const b = document.getElementById('qaRun'); if(b) b.textContent = KR ? '리포트 생성' : 'Generate report';
+  const inp = document.getElementById('qaInput');
+  if(inp) inp.placeholder = KR
+    ? '질문 입력 후 Enter (예: 7/1~7/10 STO CNS 작업자  또는  CNS 금주 현황 및 다음주 중점)'
+    : 'Type a question and press Enter (e.g. 7/1~7/10 STO CNS Operator  or  CNS this week status and next-week focus)';
+  const h = document.getElementById('qaHelp');
+  if(h) h.innerHTML = KR
+    ? '예: <b>"7/1~7/10 STO CNS 작업자"</b>, <b>"CNS 금주 현황 및 다음주 중점"</b>, <b>"object position sensor 알람 조치내용"</b>, <b>"…개선 방안 추천해줘"</b> — 날짜(이번주·지난주·이번달) · 벤더 · 설비군(CNV·STO 등) · Unit ID · 기인 · 상태 · CIM 자동 인식. "조치내용"을 물으면 기록된 조치를, "추천/개선 방안"을 물으면 추가 개선안을 제시합니다.'
+    : 'e.g. <b>"7/1~7/10 STO CNS Operator"</b>, <b>"CNS this week status and next-week focus"</b>, <b>"action for the sensor alarm"</b>, <b>"recommend improvements"</b> — auto-detects date (this/last week, this month) · vendor · machine type (e.g. CNV·STO) · Unit ID · cause · status · CIM. Ask for the "action" to see the written countermeasure, or for "recommendations" to get extra suggestions.';
+}
+// Does the question ask about the written action / countermeasure?
+function qaActionIntent(text){ return /조치|대책|조치내용|조치\s*내역|대응|action|countermeasure|measure taken|what.*done/i.test(text); }
+// Does the question ask for recommendations / alternative countermeasures?
+function qaRecoIntent(text){ return /추천|제안|대안|다른\s*방향|다른\s*방안|새로운\s*방안|개선\s*방안|개선안|방안\s*제시|어떻게\s*개선|recommend|suggest|alternative|other\s*way|improvement|idea/i.test(text); }
+// Keyword-based countermeasure knowledge base. Each suggestion is [EN, KR].
+// Keyword-based countermeasure knowledge base (specific rules first). Each rule has a
+// wide pool so different alarms can surface different, varied suggestions.
+const QA_RECO_RULES = [
+  { kw:/light\s*curtain|라이트\s*커튼|라이트커튼|커튼/i, recos:[
+    ['Re-train operators on standard work; add clear interlock signage','표준작업 재교육 및 인터록 안내 표시 추가'],
+    ['Tune entry-detection delay / muting zone to cut nuisance trips (where safe)','안전 범위 내 진입감지 지연·뮤팅 구간 튜닝으로 오검지 저감'],
+    ['Verify curtain alignment, response time and lens contamination','커튼 정렬·응답시간·렌즈 오염 점검'],
+    ['Relocate/redesign the work approach so hands need not cross the curtain','작업 동선 재설계로 커튼 통과 필요성 제거'],
+    ['Add a physical guide/guard to prevent accidental entry','우발적 진입 방지용 물리 가이드/가드 추가'],
+    ['Log trip time & operator to separate genuine vs nuisance events','트립 시각·작업자 로깅으로 실제/오검지 구분'] ] },
+  { kw:/emergency|\bemo\b|e-?stop|비상|비상정지/i, recos:[
+    ['Standardize the restart procedure and re-train operators','재시작 절차 표준화 및 작업자 재교육'],
+    ['Review guard/interlock layout to remove nuisance triggers','가드·인터록 배치 검토로 오작동 트리거 제거'],
+    ['Clarify reset conditions and add clear signage','리셋 조건 명확화 및 안내 표시 추가'],
+    ['Check EMO wiring/relay chatter and contact bounce','EMO 배선·릴레이 채터링·접점 바운스 점검'],
+    ['Separate maintenance-mode stops from production EMO in the log','정비 모드 정지와 생산 EMO를 로그에서 구분'] ] },
+  { kw:/vehicle|\bagv\b|speed|속도|주행|overspeed|traverse/i, recos:[
+    ['Re-tune AGV speed/PID & accel-decel profile; soften stop zones','AGV 속도/PID·감가속 프로파일 재조정, 정지 구간 완화'],
+    ['Check path magnets/QR & encoder feedback for slip or misread','경로 마그넷/QR·엔코더 슬립·오독 점검'],
+    ['Review bumper/obstacle-detection sensitivity','범퍼/장애물 감지 감도 검토'],
+    ['Inspect floor flatness/joints on the travel path','주행 경로 바닥 평탄도·이음부 점검'],
+    ['Check battery/charge level effect on drive performance','배터리·충전 상태가 주행 성능에 미치는 영향 점검'],
+    ['Balance traffic scheduling to avoid abrupt speed changes','급속도 변화를 줄이는 트래픽 스케줄 균형'] ] },
+  { kw:/align|aligner|cylinder|실린더|정렬|centering/i, recos:[
+    ['Tune cylinder speed/cushion & fwd-back sensor timing','실린더 속도/쿠션·전후진 센서 타이밍 조정'],
+    ['Check aligner jig wear/backlash; recalibrate the alignment sensor','정렬 지그 마모/유격 점검, 정렬 센서 재교정'],
+    ['Add position feedback (sensor/encoder) and re-set the speed controller','위치 피드백(센서/엔코더) 추가, 스피드 컨트롤러 재세팅'],
+    ['Check air pressure/regulator feeding the cylinder','실린더 공급 에어 압력/레귤레이터 점검'],
+    ['Verify product seating before the align step','정렬 스텝 전 제품 안착 확인'] ] },
+  { kw:/crane|stacker|blocking|interfere|충돌|간섭|막힘|차단/i, recos:[
+    ['Re-check traffic / interlock logic and add a wait-avoid sequence','트래픽·인터록 로직 재검토, 대기·회피 시퀀스 추가'],
+    ['Recalibrate position teaching; inspect anti-collision sensors','위치 티칭 재교정, 충돌방지 센서 점검'],
+    ['Balance stocker in/out scheduling to reduce congestion','스토커 입·출고 스케줄 균형으로 혼잡 저감'],
+    ['Add dynamic re-routing when a cell is occupied','셀 점유 시 동적 재경로 배정 추가'],
+    ['Check rail/wheel condition and positioning repeatability','레일·휠 상태 및 위치 반복정도 점검'] ] },
+  { kw:/transfer|unload|loading|\bload\b|fork|extrusion|이송|이재|반입|반출|하역|픽업|pick/i, recos:[
+    ['Recalibrate fork/transfer position teaching','포크/이송 위치 티칭 재교정'],
+    ['Add load-present & seating confirmation before motion','동작 전 로드 유무·안착 확인 추가'],
+    ['Tune transfer speed/torque and verify handshake signals','이송 속도/토크 튜닝, 핸드셰이크 신호 점검'],
+    ['Check gripper/clamp wear and grip force','그리퍼/클램프 마모·파지력 점검'],
+    ['Verify upstream buffer availability before transfer','이송 전 상류 버퍼 가용성 확인'] ] },
+  { kw:/not\s*permitted|permit|reject|route|recipe|입고|불허|storage-?in|store|등록/i, recos:[
+    ['Pre-validate the MES recipe/route before the request (add a pre-check step)','요청 전 MES 레시피/라우트 사전 검증(pre-check 단계 추가)'],
+    ['On reject, retry with a fallback route and log the reason code','불허 시 대체 경로 재시도 및 사유 코드 로깅'],
+    ['Confirm material/equipment registration status in MES','MES 내 자재·설비 등록 상태 확인'],
+    ['Sync the equipment state model with MES to avoid mismatch','설비 상태 모델과 MES 동기화로 불일치 방지'],
+    ['Add an operator-facing message explaining the reject reason','작업자에게 불허 사유를 표시하는 메시지 추가'] ] },
+  { kw:/step|sequence|시퀀스|autostep|handshake|interlock|인터록/i, recos:[
+    ['Review step interlock conditions; add a condition-wait / handshake','스텝 인터록 조건 재검토, 조건 대기·핸드셰이크 추가'],
+    ['Tune the step timeout and add retry-then-alarm','스텝 타임아웃 튜닝, 재시도 후 알람 추가'],
+    ['Map the failing step and log the last-good state','실패 스텝 매핑 및 마지막 정상 상태 로깅'],
+    ['Add a safe recovery/return-to-home sequence','안전 복귀(홈 복귀) 시퀀스 추가'] ] },
+  { kw:/rfid|barcode|바코드|read|리딩|리드|인식|scan|스캔/i, recos:[
+    ['Add N read-retries before NG and log the raw read data','NG 판정 전 N회 재시도, raw 리드 데이터 로깅'],
+    ['Clean/realign antenna & tag; check tag quality and height','안테나·태그 청소/정렬, 태그 품질·높이 점검'],
+    ['Adjust reader power/timing and shield from interference','리더 출력/타이밍 조정, 간섭 차폐'],
+    ['Check tag write quality at the upstream station','상류 스테이션의 태그 기록 품질 점검'],
+    ['Add a manual re-scan station as a fallback','대체 수단으로 수동 재스캔 스테이션 추가'] ] },
+  { kw:/cim|\bmes\b|comm|통신|interface|인터페이스|network|네트워크|protocol|timeout communication/i, recos:[
+    ['Add communication retry + timeout handling; buffer/queue messages','통신 재시도·타임아웃 처리 추가, 메시지 버퍼/큐잉'],
+    ['Verify handshake sequence & heartbeat; synchronize clocks','핸드셰이크 시퀀스·하트비트 점검, 시각 동기화'],
+    ['Escalate to IT for network/switch/firmware review','네트워크·스위치·펌웨어 IT 검토 요청'],
+    ['Add message sequence-number checks to detect drops','메시지 시퀀스 번호 확인으로 유실 감지'],
+    ['Log the full transaction payload for post-mortem','사후 분석용 트랜잭션 페이로드 전체 로깅'] ] },
+  { kw:/pallet|팔레트|jig|지그|tray|트레이|\bcell\b|셀|foil|포일|자재|material/i, recos:[
+    ['Add an incoming pallet/jig inspection and tag defective units','팔레트/지그 입고 점검 및 불량품 태깅'],
+    ['Improve seating/clamping; add a presence & flatness check','안착·클램핑 개선, 존재/평탄도 확인 추가'],
+    ['Set a preventive replacement cycle for worn jigs','마모 지그 예방 교체 주기 설정'],
+    ['Feed defect data back to the supplier/upstream process','불량 데이터를 협력사/상류 공정에 피드백'],
+    ['Add a fixture ID and track defect recurrence by fixture','치구 ID 부여 후 치구별 불량 재발 추적'] ] },
+  { kw:/air|vacuum|진공|에어|pressure|압력|leak|누설|regulator/i, recos:[
+    ['Add a pressure/vacuum sensor with an early-warning threshold','압력/진공 센서 조기경보 threshold 추가'],
+    ['Check the supply-line leak/filter; add a buffer tank','공급라인 누설·필터 점검, 버퍼 탱크 추가'],
+    ['Verify vacuum pad/seal wear and replace on a cycle','진공 패드/실 마모 점검 및 주기 교체'],
+    ['Check regulator setpoint drift over a shift','교대 중 레귤레이터 설정값 드리프트 점검'] ] },
+  { kw:/motor|servo|drive|모터|서보|구동|torque|토크|overload|과부하/i, recos:[
+    ['Review accel/decel & torque limits; add load monitoring','가감속·토크 리밋 검토, 부하 모니터링 추가'],
+    ['Lubrication/alignment PM; check coupling & belt tension','윤활·정렬 PM, 커플링·벨트 장력 점검'],
+    ['Check for mechanical binding / foreign object in the path','기구부 걸림·경로 이물 점검'],
+    ['Review the servo tuning gains for oscillation/overshoot','서보 튜닝 게인(진동/오버슈트) 재검토'] ] },
+  { kw:/timeout|time\s*out|타임아웃|지연|delay|대기|stuck|미도달|not.*reach|도달/i, recos:[
+    ['Tune the step/cycle timeout; use retry-then-alarm logic','스텝/사이클 타임아웃 튜닝, 재시도 후 알람 로직'],
+    ['Identify the upstream/downstream buffer bottleneck','상·하류 버퍼 병목 식별'],
+    ['Check the interlock waiting for a partner signal','파트너 신호 대기 인터록 점검'],
+    ['Instrument each step time to find the slow step','스텝별 소요시간 계측으로 지연 스텝 탐색'] ] },
+  { kw:/sensor|센서|detect|undetect|un-?detect|미감지|감지|position|posi|위치/i, recos:[
+    ['PLC logic: add a detection delay / debounce (e.g. +0.3–0.5s) or a re-scan retry before alarming','PLC 로직: 감지 지연/디바운스(예: +0.3~0.5s) 또는 알람 전 재감지 재시도 추가'],
+    ['Re-tune sensor sensitivity/threshold; verify alignment & mounting jig','센서 감도/threshold 재조정, 정렬·마운트 지그 점검'],
+    ['Add periodic sensor cleaning to the daily checklist','일일 점검표에 센서 주기 청소 추가'],
+    ['Check positioning repeatability / stopper; add a mechanical guide','위치 반복정도·스토퍼 점검, 기계식 가이드 추가'],
+    ['Consider a redundant/backup sensor for critical points','핵심 지점에 예비·이중 센서 검토'],
+    ['Change sensor type/spec (e.g. diffuse→retro-reflective) if unstable','불안정 시 센서 타입/사양 변경(예: 확산형→회귀반사형)'],
+    ['Add signal trend logging to catch drift before failure','고장 전 드리프트 포착용 신호 추세 로깅'] ] },
+];
+const QA_RECO_BY_CAUSE = {
+  Operator:[['Standardize the work and re-train; add poka-yoke / interlock','작업 표준화·재교육, 포카요케/인터록 추가'],['Adjust sensor logic to reduce nuisance trips','오검지 저감을 위한 센서 로직 조정'],['Add a brief in-line guide/checklist at the station','스테이션에 간단한 작업 가이드/체크리스트 배치']],
+  Equipment:[['Strengthen the PM cycle and spare-part readiness','PM 주기 강화 및 예비품 확보'],['Add condition monitoring and root-cause the failing part','상태 모니터링 추가, 고장 부위 근본 조치'],['Track MTBF per unit to target the worst offenders','호기별 MTBF 추적으로 취약 설비 집중 관리']],
+  Material:[['Add an incoming-quality gate and supplier feedback','입고 품질 게이트 및 협력사 피드백'],['Improve handling/storage of jigs & materials','지그·자재 취급/보관 개선'],['Track defect recurrence by lot / fixture ID','로트·치구 ID별 불량 재발 추적']],
+  IT:[['Add comm retry/timeout, logging and alerting','통신 재시도/타임아웃, 로깅·알림 추가'],['Review IT infrastructure (switch/PLC/firmware)','IT 인프라(스위치/PLC/펌웨어) 점검'],['Add sequence/heartbeat checks to detect drops','시퀀스/하트비트 확인으로 유실 감지']],
+  'Process Equipment':[['Coordinate interface timing with the adjacent tool','인접 설비와 인터페이스 타이밍 조율'],['Re-size the buffer/stocker capacity','버퍼/스토커 용량 재산정'],['Add a health signal exchange between tools','설비 간 상태 신호 교환 추가']],
+  Utility:[['Monitor supply stability with early warning; add redundancy','공급 안정성 모니터링·조기경보, 이중화'],['Check filters/lines on a preventive cycle','필터·배관 예방 점검 주기화']],
+  Environment:[['Control temp/humidity/static; isolate vibration & EMI','온습도·정전기 관리, 진동·EMI 격리'],['Add environment logging near the affected unit','해당 설비 인근 환경 로깅 추가']],
+  Unknown:[['Add data logging to capture the context of each occurrence','발생 시 컨텍스트 확보용 데이터 로깅 추가'],['Run a short-term intensive monitoring plan','단기 집중 모니터링 계획 수행'],['Correlate with shift/product/upstream events','교대·제품·상류 이벤트와 상관 분석']]
+};
+// Stable hash so the same alarm always gets the same (but varied vs other alarms) picks.
+function qaHash(s){ let h=2166136261>>>0; s=String(s||''); for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
+// Pick up to n items from arr starting at a rotating offset (wraps around).
+function qaPick(arr, n, seed){ const out=[]; if(!arr||!arr.length) return out; const start=seed%arr.length; for(let i=0;i<arr.length && out.length<n;i++) out.push(arr[(start+i)%arr.length]); return out; }
+// Suggest varied alternative countermeasures for one item (beyond the written action).
+function qaRecommend(item){
+  const KR = UI_LANG==='KR';
+  const hay = `${item.alarmName} ${item.issue} ${item.action}`;
+  const seed = qaHash((item.alarmName||'') + '|' + (item.code||''));
+  const matched = QA_RECO_RULES.filter(r=>r.kw.test(hay));
+  const picks = [];
+  if(matched.length){
+    picks.push(...qaPick(matched[0].recos, 3, seed));               // primary rule, rotated
+    if(matched[1]) picks.push(...qaPick(matched[1].recos, 1, (seed>>>3)));  // a secondary angle
+  }
+  picks.push(...qaPick(QA_RECO_BY_CAUSE[item.cause]||[], matched.length?1:2, (seed>>>5)));  // cause angle
+  const out=[], seen=new Set();
+  picks.forEach(r=>{ const t=KR?r[1]:r[0]; if(t && !seen.has(t)){ seen.add(t); out.push(t); } });
+  if(!out.length) out.push(KR?'발생 컨텍스트 로깅 후 근본원인 재분석 권장':'Log the occurrence context and re-analyze the root cause');
+  return out.slice(0,5);
+}
+function qaRunQuery(text){
+  const KR = UI_LANG==='KR';
+  const resEl = document.getElementById('qaResult');
+  const exportBtn = document.getElementById('qaExport');
+  if(exportBtn) exportBtn.style.display = 'none';
+  lastQaReport = null; lastQaQuery = text || '';
+  if(!text || !text.trim()){ resEl.innerHTML = `<p class="muted" style="font-size:12.5px;">${KR?'질문을 입력해 주세요.':'Please enter a question.'}</p>`; return; }
+  const allActive = activeVendors();
+  if(!allActive.length){ resEl.innerHTML = `<p class="empty">${KR?'업로드된 알람 데이터가 없습니다. 먼저 벤더 탭에서 파일을 업로드하세요.':'No alarm data uploaded. Upload a file in a vendor tab first.'}</p>`; return; }
+  const det = qaDetect(text);
+  const causes = qaDetectCauses(text);
+  const when = qaParseWhen(text);
+  const range = when || getSelectedRange(allActive);
+  const rangeStr = when ? when.label : (range.start ? `${fmtDate(range.start)} ~ ${fmtDate(range.end)}` : (KR?'전체 기간':'All periods'));
+  const vendors = det.vendors.size ? Array.from(det.vendors).filter(v=>state[v] && state[v].current) : allActive;
+  if(!vendors.length){ resEl.innerHTML = `<p class="empty">${KR?'지정한 벤더의 데이터가 없습니다.':'No data for the specified vendor(s).'}</p>`; return; }
+  const terms = qaTextTerms(text, det);
+  const filt = { causes, statuses:det.statuses, types:det.types, uids:det.uids, cims:det.cims, terms };
+  const { items, total, byCause, byStatus } = qaCollect(vendors, range, filt);
+  // Condition chips.
+  const cl = { type: KR?'설비군:':'type:', cause: KR?'기인:':'cause:', status: KR?'상태:':'status:', cim:'' };
+  const condHtml = [
+    qaChip('📅 '+rangeStr, '#0891b2'),
+    ...vendors.map(v=>qaChip(v, '#334155')),
+    ...Array.from(det.types).map(tp=>qaChip(cl.type+tp, '#0f766e')),
+    ...Array.from(det.uids).map(u=>qaChip(u, '#475569')),
+    ...Array.from(causes).map(c=>qaChip(cl.cause+c, causeColor(c))),
+    ...Array.from(det.statuses).map(s=>qaChip(cl.status+s, STATUS_COLOR[s]||'#6b7280')),
+    ...Array.from(det.cims).map(c=>qaChip(c, '#9333ea')),
+    ...(terms.length?[qaChip((KR?'알람명: ':'name: ')+terms.join(' '), '#0369a1')]:[])
+  ].join('');
+  // Export table.
+  lastQaReport = { header: KR
+      ? ['벤더','설비군','Unit ID','알람명','Case','기인','상태','건수','현상/원인','조치내용']
+      : ['Vendor','Machine Type','Unit ID','Alarm Name','Case','Cause','Status','Count','Observed Issue / Root Cause','Action (written)'],
+    rows: items.map(it=>[it.vendor, it.machine, it.code, it.alarmName, it.caseNo, it.cause, it.status, it.count, it.issue, it.action]),
+    range: rangeStr };
+  if(!items.length){
+    resEl.innerHTML = `<div style="margin-bottom:8px;">${condHtml}</div><p class="empty">${KR?'해당 조건에 맞는 알람이 없습니다.':'No alarms match these conditions.'}</p>`;
+    return;
+  }
+  const pctPart = KR ? (k,n)=>`${k} ${n}건(${Math.round(n/total*100)}%)` : (k,n)=>`${k} ${n} (${Math.round(n/total*100)}%)`;
+  const topFmt = obj => Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([k,n])=>pctPart(k,n)).join(', ');
+  const top = items[0];
+  let summary;
+  if(KR){
+    summary = `<b>📊 ${rangeStr}</b> 기간, 대상 <b>${vendors.join(', ')}</b>${det.types.size?` · 설비군 ${Array.from(det.types).join('/')}`:''}${causes.size?` · 기인 ${Array.from(causes).join('/')}`:''}${det.statuses.size?` · 상태 ${Array.from(det.statuses).join('/')}`:''} 조건으로 총 <b>${total.toLocaleString('en-US')}건</b>의 알람이 발생했습니다. `
+      + `기인별로는 ${topFmt(byCause)} 순이며, 상태별로는 ${topFmt(byStatus)} 입니다. `
+      + `최다 케이스는 '<b>${esc(top.alarmName||'(무명)')}</b>' (${top.count}건 · ${esc(top.code)} · ${esc(top.machine)} · ${esc(top.vendor)} · ${esc(top.cause)}/${esc(top.status)}) 입니다.`;
+  } else {
+    summary = `<b>📊 ${rangeStr}</b>, target <b>${vendors.join(', ')}</b>${det.types.size?` · type ${Array.from(det.types).join('/')}`:''}${causes.size?` · cause ${Array.from(causes).join('/')}`:''}${det.statuses.size?` · status ${Array.from(det.statuses).join('/')}`:''}: a total of <b>${total.toLocaleString('en-US')} alarms</b> occurred. `
+      + `By cause, ${topFmt(byCause)}; by status, ${topFmt(byStatus)}. `
+      + `Top case: '<b>${esc(top.alarmName||'(unnamed)')}</b>' (${top.count} · ${esc(top.code)} · ${esc(top.machine)} · ${esc(top.vendor)} · ${esc(top.cause)}/${esc(top.status)}).`;
+  }
+  // Advisory answer (status + next-period focus recommendation).
+  let answerHtml = '';
+  if(qaIsAdvisory(text)){
+    let incomplete = (byStatus['On-Going']||0) + (byStatus['Monitoring']||0);
+    // Week-over-week vs the immediately preceding equal-length window.
+    let wow = '';
+    if(range.start && range.end){
+      const lenMs = range.end - range.start;
+      const prevEnd = addDays(range.start,-1);
+      const prevStart = new Date(prevEnd.getTime()-lenMs);
+      const prev = qaCollect(vendors, {start:prevStart,end:prevEnd}, filt);
+      if(prev.total>0){
+        const diff = total - prev.total; const pct = Math.round(Math.abs(diff/prev.total*100));
+        wow = KR ? ` 직전 동일기간(${prev.total}건) 대비 ${pct}% ${diff>0?'증가':diff<0?'감소':'동일'}.`
+                 : ` vs the prior equal period (${prev.total}): ${pct}% ${diff>0?'up':diff<0?'down':'flat'}.`;
+      }
+    }
+    // Rank unresolved items by frequency × status weight for next-period focus.
+    const focus = items.map(it=>({ it, score: it.count*(QA_STATUS_WEIGHT[it.status]??0.6) }))
+      .filter(x=> QA_UNRESOLVED.has(x.it.status) || x.score>0)
+      .sort((a,b)=>b.score-a.score).slice(0,5).map(x=>x.it);
+    const focusLines = focus.map((it,i)=> KR
+      ? `${i+1}) ${esc(it.vendor)} ${esc(it.machine)} ${esc(it.code)} · ${esc(it.alarmName||'(무명)')} — ${it.count}건, ${esc(it.cause)}/${esc(it.status)} → ${esc(actionHint(it.status))}`
+      : `${i+1}) ${esc(it.vendor)} ${esc(it.machine)} ${esc(it.code)} · ${esc(it.alarmName||'(unnamed)')} — ${it.count}, ${esc(it.cause)}/${esc(it.status)} → ${esc(actionHint(it.status))}`
+    ).join('<br>');
+    const nextAsked = /다음\s*주|다음주|차주|next\s*week/i.test(text);
+    if(KR){
+      answerHtml = `<div class="card" style="background:#f0f7ff;border-color:#c9dcff;margin-bottom:10px;font-size:12.8px;line-height:1.75;">
+        <div style="font-weight:800;margin-bottom:4px;">💡 답변</div>
+        <div><b>[현황]</b> ${rangeStr} 동안 ${vendors.join(', ')}에서 총 <b>${total.toLocaleString('en-US')}건</b>의 알람이 발생했습니다.${wow} 미완료(진행중+모니터링) <b>${incomplete}건</b>. 기인 상위: ${topFmt(byCause)}.</div>
+        <div style="margin-top:6px;"><b>[${nextAsked?'다음주 ':''}중점 관리 대상]</b><br>${focusLines||'우선 조치가 필요한 항목이 없습니다.'}</div>
+      </div>`;
+    } else {
+      answerHtml = `<div class="card" style="background:#f0f7ff;border-color:#c9dcff;margin-bottom:10px;font-size:12.8px;line-height:1.75;">
+        <div style="font-weight:800;margin-bottom:4px;">💡 Answer</div>
+        <div><b>[Status]</b> During ${rangeStr}, ${vendors.join(', ')} had <b>${total.toLocaleString('en-US')} alarms</b>.${wow} Incomplete (On-Going+Monitoring): <b>${incomplete}</b>. Top causes: ${topFmt(byCause)}.</div>
+        <div style="margin-top:6px;"><b>[${nextAsked?'Next-week ':''}Focus items]</b><br>${focusLines||'No items require priority action.'}</div>
+      </div>`;
+    }
+  }
+  // Alternative-countermeasure recommendations (when asked).
+  let recoHtml = '';
+  if(qaRecoIntent(text)){
+    const picks = items.slice(0,3);
+    const blocks = picks.map(it=>{
+      const recos = qaRecommend(it);
+      const recoLis = recos.map(r=>`<li style="margin-bottom:2px;">${esc(r)}</li>`).join('') || `<li>${KR?'추가 제안 규칙에 해당하는 키워드가 없습니다. 데이터 로깅 후 재검토 권장.':'No keyword rule matched; log data and re-review.'}</li>`;
+      const written = it.action ? esc(it.action) : `<span class="muted">${KR?'(기록된 조치 없음)':'(no written action)'}</span>`;
+      return `<div style="margin-bottom:10px;">
+        <div style="font-weight:700;">• ${esc(it.alarmName||'(unnamed)')} <span class="muted" style="font-weight:400;">(${esc(it.code)} · ${esc(it.cause)}/${esc(it.status)} · ${it.count}${KR?'건':''})</span></div>
+        <div style="margin:2px 0 3px 12px;"><b>${KR?'기록된 조치':'Written action'}:</b> ${written}</div>
+        <div style="margin-left:12px;"><b style="color:#0f766e;">${KR?'추가 제안':'Suggested alternatives'}:</b><ul style="margin:3px 0 0 18px;padding:0;">${recoLis}</ul></div>
+      </div>`;
+    }).join('');
+    recoHtml = `<div class="card" style="background:#f0fdf9;border-color:#a7f3d0;margin-bottom:10px;font-size:12.6px;line-height:1.6;">
+      <div style="font-weight:800;margin-bottom:6px;">🛠 ${KR?'개선 방안 추천 (기록된 조치 외 추가 제안)':'Recommended countermeasures (beyond the written action)'}</div>
+      ${blocks}
+      <div class="muted" style="font-size:11px;margin-top:2px;">${KR?'※ 규칙 기반 일반 제안입니다. 현장 조건에 맞게 검토·적용하세요.':'※ Rule-based general suggestions — review and adapt to on-site conditions.'}</div>
+    </div>`;
+  }
+  const clip = s => { s=String(s||''); return s.length>120 ? s.slice(0,120)+'…' : s; };
+  const th = KR
+    ? ['No.','벤더','설비군','Unit ID','알람명','Case','기인','상태','건수','현상 / 원인','조치내용']
+    : ['No.','Vendor','Machine Type','Unit ID','Alarm Name','Case','Cause','Status','Count','Observed Issue / Root Cause','Action (written)'];
+  const rowsHtml = items.slice(0,100).map((it,i)=>`<tr><td>${i+1}</td><td><span class="tag">${esc(it.vendor)}</span></td><td>${esc(it.machine)}</td><td>${esc(it.code)}</td><td>${esc(it.alarmName)}</td><td>${esc(it.caseNo)}</td><td>${esc(it.cause)}</td><td>${statusBadge(it.status)}</td><td class="num">${it.count}</td><td style="white-space:pre-wrap;" title="${esc(it.issue)}">${esc(clip(it.issue))}</td><td style="white-space:pre-wrap;" title="${esc(it.action)}">${esc(clip(it.action)) || '<span class="muted">-</span>'}</td></tr>`).join('');
+  const shown = items.length>100 ? (KR?', 상위 100건 표시':', showing top 100') : '';
+  const totLabel = KR ? `합계 (${items.length}건${shown})` : `Total (${items.length} case${items.length>1?'s':''}${shown})`;
+  resEl.innerHTML = `
+    <div style="margin-bottom:8px;">${condHtml}</div>
+    ${answerHtml}
+    ${recoHtml}
+    <div class="card" style="background:#fff;margin-bottom:10px;font-size:12.8px;line-height:1.7;">${summary}</div>
+    <div class="tablewrap" style="max-height:440px;"><table>
+      <thead><tr>${th.map((h,i)=>`<th${i===0?' style="width:36px;"':(i===7?' style="width:90px;"':(i===8?' style="width:60px;"':(i===9?' style="min-width:200px;"':(i===10?' style="min-width:200px;"':''))))}>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rowsHtml}
+      <tr style="font-weight:800;background:#f8f9fb;"><td></td><td colspan="7">${esc(totLabel)}</td><td class="num">${total}</td><td></td><td></td></tr></tbody></table></div>`;
+  if(exportBtn) exportBtn.style.display = '';
+}
+function exportQaXlsx(){
+  if(!lastQaReport || !lastQaReport.rows.length) return;
+  const tag = (lastQaReport.range||'').replace(/[^\w\-]+/g,'');
+  exportAoaXlsx([lastQaReport.header, ...lastQaReport.rows], 'Query Report', `qa_report_${tag||'all'}.xlsx`,
+    [{wch:9},{wch:16},{wch:14},{wch:32},{wch:8},{wch:16},{wch:12},{wch:8},{wch:50},{wch:50}]);
+}
+// Sunday of the calendar week containing d (weeks run Sunday→Saturday).
+function weekSunday(d){
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  s.setDate(s.getDate() - s.getDay());   // getDay(): 0=Sun
+  return s;
+}
+// Daily alarm trend per vendor across the selected period (one line per vendor).
+function renderTrendChart(vendors, range){
+  destroyChart('chartTrend');
+  // Dates to plot = the data dates within the selected range (union across vendors).
+  const inRange = d => (!range || !range.start || (d>=range.start && d<=range.end));
+  const dateSet = new Map();
+  vendors.forEach(v=>(state[v].current.listRows||[]).forEach(row=>{
+    if(rowExcludedByFilters(row)) return;
+    (row.daily||[]).forEach(e=>{ if(effEntry(e).count>0 && inRange(e.date)) dateSet.set(dkey(e.date), e.date); });
+  }));
+  const dates = Array.from(dateSet.values()).sort((a,b)=>a-b);
+  if(!dates.length){
+    chartInstances['chartTrend'] = new Chart(document.getElementById('chartTrend'), {
+      type:'line', data:{labels:[], datasets:[]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{title:{display:true, text:'No data yet.'}}}
+    });
+    return;
+  }
+  const totals = {};   // vendor -> { dkey -> count }
+  vendors.forEach(v=>{
+    const map = {};
+    (state[v].current.listRows||[]).forEach(row=>{
+      if(rowExcludedByFilters(row)) return;
+      (row.daily||[]).forEach(e=>{ const c=effEntry(e).count; if(c>0 && inRange(e.date)) map[dkey(e.date)] = (map[dkey(e.date)]||0)+c; });
+    });
+    totals[v] = map;
+  });
+  const labels = dates.map(fmtDate);
+  const datasets = vendors.map(v=>({
+    label:v, data: dates.map(d=> totals[v][dkey(d)] ?? null),
+    borderColor: VENDOR_COLOR[v], backgroundColor: VENDOR_COLOR[v], spanGaps:true, tension:.25
+  }));
+  // capture for Excel export
+  lastTrend = { rows: [['Date', ...vendors, 'Total'], ...dates.map(d=>{
+    const per = vendors.map(v=> totals[v][dkey(d)] || 0);
+    return [fmtDateFull(d), ...per, per.reduce((a,x)=>a+x,0)];
+  })] };
+  chartInstances['chartTrend'] = new Chart(document.getElementById('chartTrend'), {
+    type:'line', data:{labels, datasets},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{ tooltip:{ mode:'index', intersect:false } }, scales:{y:{beginAtZero:true}}}
+  });
+}
+// Generic daily multi-line chart. seriesMap: { key -> { dkey -> {date,count} } }. colorFn(key)->color.
+// Stores the aoa in a target export slot. Returns nothing.
+function renderDailyMultiLine(canvasId, seriesMap, colorFn, exportSlot, keyHeader){
+  destroyChart(canvasId);
+  const dateSet = new Map();
+  Object.values(seriesMap).forEach(m => Object.values(m).forEach(o=>{ if(o.count>0) dateSet.set(dkey(o.date), o.date); }));
+  const dates = Array.from(dateSet.values()).sort((a,b)=>a-b);
+  const keys = Object.keys(seriesMap).filter(k => Object.values(seriesMap[k]).some(o=>o.count>0));
+  if(!dates.length || !keys.length){
+    chartInstances[canvasId] = new Chart(document.getElementById(canvasId), {
+      type:'line', data:{labels:[], datasets:[]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{title:{display:true,text:'No data.'}}}
+    });
+    if(exportSlot) window[exportSlot] = null;
+    return;
+  }
+  const labels = dates.map(fmtDate);
+  const datasets = keys.map(k=>({
+    label:k, data: dates.map(d=> seriesMap[k][dkey(d)]?.count ?? null),
+    borderColor: colorFn(k), backgroundColor: colorFn(k), spanGaps:true, tension:.25
+  }));
+  if(exportSlot){
+    window[exportSlot] = { rows: [[keyHeader, ...keys, 'Total'], ...dates.map(d=>{
+      const per = keys.map(k=> seriesMap[k][dkey(d)]?.count || 0);
+      return [fmtDateFull(d), ...per, per.reduce((a,x)=>a+x,0)];
+    })] };
+  }
+  chartInstances[canvasId] = new Chart(document.getElementById(canvasId), {
+    type:'line', data:{labels, datasets},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{ tooltip:{ mode:'index', intersect:false } }, scales:{y:{beginAtZero:true}}}
+  });
+}
+function renderTrendByCause(stats){
+  renderDailyMultiLine('chartTrendCause', stats.causeDailyByCause || {}, causeColor, 'lastTrendCause', 'Date');
+}
+function renderTrendByStatus(stats){
+  const colorFn = s => STATUS_COLOR[s] || (s==='(none)'?'#cbd5e1':'#9ca3af');
+  renderDailyMultiLine('chartTrendStatus', stats.statusDailyByStatus || {}, colorFn, 'lastTrendStatus', 'Date');
+}
+// Stacked bar: x = vendors, stacked by cause. Stores export aoa in window.lastVendorCause.
+function renderVendorByCause(vendors, range){
+  destroyChart('chartVendorCause');
+  const per = vendors.map(v => computeRangeStats([v], range.start, range.end));
+  const causes = CAUSE_LIST.filter(c => per.some(s=>s.byCause[c]>0))
+    .concat(Object.keys(Object.assign({}, ...per.map(s=>s.byCause))).filter(c=>!CAUSE_LIST.includes(c)));
+  const yMax = niceMax(Math.max(0, ...per.map(s=>s.total)));
+  const datasets = causes.map(c=>({ label:c, data: per.map(s=>s.byCause[c]||0), backgroundColor: causeColor(c) }));
+  window.lastVendorCause = { rows: [['Vendor', ...causes, 'Total'], ...vendors.map((v,i)=>{ const r=causes.map(c=>per[i].byCause[c]||0); return [v, ...r, r.reduce((a,x)=>a+x,0)]; })] };
+  // Same "index"-mode caveat as the other stacked charts: els[0] from onClick always reflects
+  // dataset 0, so a real hit-test (getElementsAtEventForMode) is needed to know which cause
+  // segment was actually clicked for a given vendor bar.
+  const vcClickHandler = (evt, els, chartArg)=>{
+    const c = chartArg || chartInstances['chartVendorCause'];
+    let hit = els && els[0];
+    if(c && typeof c.getElementsAtEventForMode === 'function'){
+      const pts = c.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, true);
+      if(pts.length) hit = pts[0];
+    }
+    if(!hit) return;
+    const idx = hit.index, dsIdx = hit.datasetIndex;
+    const vendor = vendors[idx], cause = causes[dsIdx];
+    const key = vendor+'|'+cause;
+    const presentForCause = vendors.map((v,i)=>({v,i})).filter(o=>(per[o.i].byCause[cause]||0)>0).map(o=>o.v+'|'+cause);
+    const clickedIdx = presentForCause.indexOf(key);
+    if(clickedIdx<0) return;
+    const ne = (evt && evt.native) || evt || {};
+    selectedVendorCauseKeys = multiSelectClick(selectedVendorCauseKeys, presentForCause, key, clickedIdx, vendorCauseAnchor, ne,
+      (a,b)=> a.slice(a.lastIndexOf('|')+1) === b.slice(b.lastIndexOf('|')+1));
+    updateVendorCauseSelectionUI();
+  };
+  const ch = new Chart(document.getElementById('chartVendorCause'), {
+    type:'bar', data:{ labels:vendors, datasets },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:16}},
+      interaction:{mode:'index',intersect:false},
+      onClick:vcClickHandler,
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:10}}}, tooltip:{mode:'index',intersect:false, callbacks:{ label:(it)=>{ const v=it.parsed.y; if(!v) return null; return `${it.dataset.label}: ${v}`; } }} },
+      scales:{ x:{stacked:true}, y:{stacked:true, beginAtZero:true, max:yMax, ticks:{stepSize:yMax/4}} } },
+    plugins:[stackTotalPlugin]
+  });
+  ch.$vendors = vendors; ch.$causes = causes; ch.$per = per; ch.$range = range;
+  chartInstances['chartVendorCause'] = ch;
+  updateVendorCauseSelectionUI();   // re-apply/refresh any existing selection (colors + inline report)
+}
+// Stacked bar: x = vendors, stacked by status.
+function renderVendorByStatus(vendors, range){
+  destroyChart('chartVendorStatus');
+  const per = vendors.map(v => computeRangeStats([v], range.start, range.end));
+  const vendorStatus = per.map(s=>{ const t={}; Object.values(s.statusByCause).forEach(o=>Object.entries(o).forEach(([st,n])=>{ t[st]=(t[st]||0)+n; })); return t; });
+  const KNOWN = ['On-Going','Monitoring','Unavoidable','Operational','Completed'];
+  const extra = new Set(); vendorStatus.forEach(t=>Object.keys(t).forEach(s=>{ if(!KNOWN.includes(s)) extra.add(s); }));
+  const statuses = KNOWN.concat(Array.from(extra));
+  const yMax = niceMax(Math.max(0, ...per.map(s=>s.total)));
+  const statusColor = s => STATUS_COLOR[s] || (s==='(none)'?'#cbd5e1':'#9ca3af');
+  const datasets = statuses.map(s=>({ label:s, data: vendorStatus.map(t=>t[s]||0), backgroundColor: statusColor(s) }));
+  window.lastVendorStatus = { rows: [['Vendor', ...statuses, 'Total'], ...vendors.map((v,i)=>{ const r=statuses.map(s=>vendorStatus[i][s]||0); return [v, ...r, r.reduce((a,x)=>a+x,0)]; })] };
+  // NOTE: the chart's own interaction.mode is 'index' (so hovering shows every status' tooltip
+  // at that vendor), but that also means the plain `els` passed to onClick lists ALL datasets at
+  // that x position — els[0] is always dataset 0 ("On-Going"), regardless of which color band was
+  // actually clicked. So for the click itself we re-hit-test with intersect:true to find the exact
+  // segment under the pointer; `els` is only used as a fallback where that isn't available (tests).
+  const vsClickHandler = (evt, els, chartArg)=>{
+    const c = chartArg || chartInstances['chartVendorStatus'];
+    let hit = els && els[0];
+    if(c && typeof c.getElementsAtEventForMode === 'function'){
+      const pts = c.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, true);
+      if(pts.length) hit = pts[0];
+    }
+    if(!hit) return;
+    const idx = hit.index, dsIdx = hit.datasetIndex;
+    const vendor = vendors[idx], status = statuses[dsIdx];
+    const key = vendor+'|'+status;
+    const presentForStatus = vendors.map((v,i)=>({v,i})).filter(o=>(vendorStatus[o.i][status]||0)>0).map(o=>o.v+'|'+status);
+    const clickedIdx = presentForStatus.indexOf(key);
+    if(clickedIdx<0) return;
+    const ne = (evt && evt.native) || evt || {};
+    selectedVendorStatusKeys = multiSelectClick(selectedVendorStatusKeys, presentForStatus, key, clickedIdx, vsAnchor, ne,
+      (a,b)=> a.slice(a.lastIndexOf('|')+1) === b.slice(b.lastIndexOf('|')+1));
+    updateVendorStatusSelectionUI();
+  };
+  const ch = new Chart(document.getElementById('chartVendorStatus'), {
+    type:'bar', data:{ labels:vendors, datasets },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:16}},
+      interaction:{mode:'index',intersect:false},
+      onClick:vsClickHandler,
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:10}}}, tooltip:{mode:'index',intersect:false, callbacks:{ label:(it)=>{ const v=it.parsed.y; if(!v) return null; return `${it.dataset.label}: ${v}`; } }} },
+      scales:{ x:{stacked:true}, y:{stacked:true, beginAtZero:true, max:yMax, ticks:{stepSize:yMax/4}} } },
+    plugins:[stackTotalPlugin]
+  });
+  ch.$vendors = vendors; ch.$statuses = statuses; ch.$vendorStatus = vendorStatus; ch.$range = range;
+  chartInstances['chartVendorStatus'] = ch;
+  updateVendorStatusSelectionUI();   // re-apply/refresh any existing selection (colors + inline report)
+}
+function renderTop5(stats){
+  const el = document.getElementById('top5Table');
+  if(!stats.rows.length){ el.innerHTML = '<p class="empty">No data available for the selected period.</p>'; lastTop=null; return; }
+  if(topMode === 'alarm'){
+    // Aggregate by Alarm Name across all causes/machines.
+    const agg = {};
+    stats.rows.forEach(r=>{
+      const name = String(r.row.alarmName || '(unnamed)');
+      const a = (agg[name] = agg[name] || { count:0, causes:new Set(), machines:new Set() });
+      a.count += r.sum; if(r.row.cause) a.causes.add(r.row.cause); if(r.row.machine) a.machines.add(r.row.machine);
+    });
+    const items = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+    lastTop = { header:['Alarm Name','Causes','Machine Types','Count (period)'],
+      rows: items.map(([n,a])=>[n, Array.from(a.causes).join(', '), Array.from(a.machines).join(', '), a.count]) };
+    el.innerHTML = `<table><thead><tr><th>Alarm Name</th><th>Causes</th><th>Machine Types</th><th>Count (period)</th></tr></thead>
+      <tbody>${items.map(([n,a])=>`<tr><td>${esc(n)}</td><td>${esc(Array.from(a.causes).join(', '))}</td><td>${esc(Array.from(a.machines).join(', '))}</td><td class="num">${num(a.count)}</td></tr>`).join('')}</tbody></table>`;
+  } else {
+    const items = stats.rows.slice().sort((a,b)=>b.sum-a.sum).slice(0,10);
+    lastTop = { header:['Vendor','Machine','Alarm Name','Case','Cause','Count (period)'],
+      rows: items.map(i=>[i.vendor, i.row.machine, i.row.alarmName, i.row.caseNo, i.row.cause, i.sum]) };
+    el.innerHTML = `<table><thead><tr><th>Vendor</th><th>Machine</th><th>Alarm Name</th><th>Case</th><th>Cause</th><th>Count (period)</th></tr></thead>
+      <tbody>${items.map(i=>`<tr><td><span class="tag">${esc(i.vendor)}</span></td><td>${esc(i.row.machine)}</td><td>${esc(i.row.alarmName)}</td><td>${esc(i.row.caseNo)}</td><td>${esc(i.row.cause)}</td><td class="num">${num(i.sum)}</td></tr>`).join('')}</tbody></table>`;
+  }
+}
+function computeFocusList(stats){
+  const STATUS_WEIGHT = {'Unavoidable':0.25, 'Operational':0.15, 'On-going':1.0, 'On-Going':1.0, 'Monitoring':0.7, 'Completed':0.05};
+  const items = stats.rows.map(r=>{
+    const w = STATUS_WEIGHT[r.row.status] ?? 0.6;
+    return { vendor:r.vendor, ...r.row, periodSum:r.sum, score: r.sum * w };
+  }).filter(it=>it.score>0);
+  items.sort((a,b)=>b.score-a.score);
+  return items.slice(0,8);
+}
+function renderFocusList(stats){
+  const el = document.getElementById('focusList');
+  const items = computeFocusList(stats);
+  if(!items.length){ el.innerHTML = '<p class="empty">No data to recommend for the selected period.</p>'; lastFocus=null; return; }
+  // Store a flat table for Excel export.
+  lastFocus = { header:['Rank','Vendor','Machine','Alarm Name','Case','Cause','Status','Count (period)','Observed Issue / Cause','Suggested Action'],
+    rows: items.map((it,idx)=>[idx+1, it.vendor, it.machine, it.alarmName||'', it.caseNo, it.cause, it.status||'', it.periodSum,
+      String(issueText(it)||'').trim(), ACTION_HINT[it.status] || 'Current status check needed']) };
+  el.innerHTML = items.map((it,idx)=>`
+    <div class="focusItem">
+      <div class="top">
+        <span><span class="rank">${idx+1}</span><span class="tag">${esc(it.vendor)}</span>${esc(it.machine)} · Case ${esc(it.caseNo)} · ${esc(it.cause)}</span>
+        <span>${statusBadge(it.status)} &nbsp; ${it.periodSum} in period</span>
+      </div>
+      <div style="font-weight:700;font-size:12.5px;color:#1d4ed8;margin:2px 0 3px;">🔔 ${esc(it.alarmName || '(unnamed alarm)')}</div>
+      <div class="desc">${esc((issueText(it)||it.alarmName||'').toString().slice(0,180))}</div>
+      <div class="hint">👉 ${actionHint(it.status)}</div>
+    </div>
+  `).join('');
+}
+function renderNarrative(vendors, stats, range){
+  const box = document.getElementById('narrativeBox');
+  const KR = UI_LANG==='KR';
+  if(!vendors.length){
+    box.innerHTML = KR
+      ? '<span class="muted">업로드된 알람 목록이 없습니다. 벤더 탭에서 파일을 업로드하면 기간 요약과 중점 권고가 자동으로 생성됩니다.</span>'
+      : '<span class="muted">No alarm lists uploaded. Upload a file in a vendor tab and the period summary and focus recommendations will be generated here automatically.</span>';
+    return;
+  }
+  const rangeStr = (range.start && range.end) ? `${fmtDate(range.start)}~${fmtDate(range.end)}` : (KR?'전체':'All');
+  const topCauses = Object.entries(stats.byCause).filter(([,c])=>c>0).sort((a,b)=>b[1]-a[1]).slice(0,2);
+  const causeSentence = topCauses.length
+    ? (KR
+        ? '기인별로는 ' + topCauses.map(([c,cnt])=>`${c} (${cnt}건, ${stats.total?Math.round(cnt/stats.total*100):0}%)`).join(', ') + ' 순으로 가장 많이 발생했습니다.'
+        : 'By cause, ' + topCauses.map(([c,cnt])=>`${c} (${cnt}, ${stats.total?Math.round(cnt/stats.total*100):0}%)`).join(', ') + ' were the most frequent, in that order.')
+    : (KR?'기인 데이터가 없습니다.':'No cause data was found.');
+  const prev = prevPeriodTotal(vendors, range.start, range.end);
+  let deltaSentence = KR?'직전 비교 기간이 없습니다.':'No prior period to compare against.';
+  if(prev && prev.total>0){
+    const diff = stats.total - prev.total; const pct = Math.round(Math.abs(diff/prev.total*100));
+    if(KR){
+      deltaSentence = diff===0 ? '직전 동일 길이 기간과 같은 수준입니다.' : `직전 동일 길이 기간(${prev.total}건) 대비 ${pct}% ${diff>0?'증가':'감소'}했습니다.`;
+    } else {
+      deltaSentence = diff===0 ? 'This is the same level as the prior period.' : `This is a ${pct}% ${diff>0?'increase':'decrease'} vs the prior equal-length period (${prev.total}).`;
+    }
+  }
+  const top = stats.rows.slice().sort((a,b)=>b.sum-a.sum)[0];
+  const topCaseSentence = top
+    ? (KR
+        ? ` 가장 많이 발생한 케이스는 '${esc(top.row.alarmName)}' (${top.sum}건, ${esc(top.vendor)} · ${esc(top.row.machine)}) 입니다.`
+        : ` The most frequent case was '${esc(top.row.alarmName)}' (${top.sum}) on ${esc(top.row.machine)} at ${esc(top.vendor)}.`)
+    : '';
+  let ongoing=0, monitoring=0, completed=0;
+  Object.values(stats.statusByCause).forEach(st=>{ ongoing+=st['On-Going']||0; monitoring+=st['Monitoring']||0; completed+=st['Completed']||0; });
+  const focus = computeFocusList(stats).slice(0,3);
+  const notSpec = KR?'미지정':'Not specified';
+  const focusSentence = focus.length
+    ? focus.map((it,idx)=> KR
+        ? `${idx+1}) ${esc(it.vendor)} ${esc(it.machine)} Case ${esc(it.caseNo)} (${esc(it.cause)}) — 기간 내 ${it.periodSum}건, 상태 ${esc(it.status||notSpec)} → ${esc(String(issueText(it)||'').slice(0,140)) || esc(actionHint(it.status))}`
+        : `${idx+1}) ${esc(it.vendor)} ${esc(it.machine)} Case ${esc(it.caseNo)} (${esc(it.cause)}) — ${it.periodSum} in period, status ${esc(it.status||notSpec)} → ${esc(String(issueText(it)||'').slice(0,140)) || esc(actionHint(it.status))}`
+      ).join('<br>')
+    : (KR?'우선 조치가 필요한 항목이 확인되지 않았습니다.':'No items requiring priority attention were identified.');
+  if(KR){
+    box.innerHTML = `
+      <div style="margin-bottom:12px;"><b>📝 기간 요약</b> <span class="muted">(${rangeStr} · ${esc(vendors.join(', '))})</span><br>
+      이 기간 동안 총 <b>${stats.total.toLocaleString('en-US')}건</b>의 알람이 발생했습니다. ${deltaSentence} ${causeSentence}${topCaseSentence} 조치 상태: 진행중 ${ongoing}, 모니터링 ${monitoring}, 완료 ${completed}.</div>
+      <div><b>👉 중점 권고 (조치 항목)</b><br>${focusSentence}</div>
+    `;
+  } else {
+    box.innerHTML = `
+      <div style="margin-bottom:12px;"><b>📝 Period Summary</b> <span class="muted">(${rangeStr} · ${esc(vendors.join(', '))})</span><br>
+      A total of <b>${stats.total.toLocaleString('en-US')} alarms</b> occurred in this period. ${deltaSentence} ${causeSentence}${topCaseSentence} Action status: On-going ${ongoing}, Monitoring ${monitoring}, Completed ${completed}.</div>
+      <div><b>👉 Focus Recommendations (Action Items)</b><br>${focusSentence}</div>
+    `;
+  }
+}
+// Populate the From/To date dropdowns from the available data dates.
+function parseDateInput(v){ if(!v) return null; const p=v.split('-').map(Number); return (p.length===3 && !p.some(isNaN)) ? new Date(p[0], p[1]-1, p[2]) : null; }
+function toDateInputValue(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// Fill the calendar date inputs + the range slider from the current selection.
+function renderDateSelectors(){
+  const s = document.getElementById('dateStart'), e = document.getElementById('dateEnd');
+  if(!s || !e) return;
+  if(dashDates.length){
+    const min = toDateInputValue(dashDates[0]), max = toDateInputValue(dashDates[dashDates.length-1]);
+    s.min = min; s.max = max; e.min = min; e.max = max;
+    const start = dashState.start || dashDates[0];
+    const end   = dashState.end   || dashDates[dashDates.length-1];
+    s.value = toDateInputValue(start);
+    e.value = toDateInputValue(end);
+  } else {
+    s.value = ''; e.value = '';
+  }
+  // sync the dual-thumb slider
+  const ss = document.getElementById('sliderStart'), se = document.getElementById('sliderEnd');
+  if(ss && se){
+    const maxIdx = Math.max(0, dashDates.length-1);
+    ss.max = String(maxIdx); se.max = String(maxIdx);
+    let a = 0, b = maxIdx;
+    if(dashState.start) a = Math.max(0, dashDates.findIndex(d=>sameDay(d,dashState.start)));
+    if(dashState.end)   b = Math.max(0, dashDates.findIndex(d=>sameDay(d,dashState.end)));
+    ss.value = String(a); se.value = String(b);
+    updateDateFill();
+  }
+}
+function updateDateFill(){
+  const ss = document.getElementById('sliderStart'), se = document.getElementById('sliderEnd'), fill = document.getElementById('dateFill');
+  if(!ss || !se || !fill) return;
+  const maxIdx = Math.max(1, Number(ss.max));
+  let a = Number(ss.value), b = Number(se.value);
+  if(a > b){ const t=a; a=b; b=t; }
+  fill.style.left = (a/maxIdx*100) + '%';
+  fill.style.width = ((b-a)/maxIdx*100) + '%';
+}
+// Live label update while dragging a slider thumb (no heavy re-render yet).
+function onDateSliderInput(){
+  if(!dashDates.length) return;
+  const ss = document.getElementById('sliderStart'), se = document.getElementById('sliderEnd');
+  let a = Number(ss.value), b = Number(se.value);
+  if(a > b){ const t=a; a=b; b=t; }
+  updateDateFill();
+  document.getElementById('dateStart').value = toDateInputValue(dashDates[a]);
+  document.getElementById('dateEnd').value = toDateInputValue(dashDates[b]);
+  document.getElementById('rangeLabel').textContent = `${fmtDate(dashDates[a])} ~ ${fmtDate(dashDates[b])}`;
+}
+// Commit the slider selection (on release) → update the dashboard.
+function applyDateSlider(){
+  if(!dashDates.length) return;
+  const ss = document.getElementById('sliderStart'), se = document.getElementById('sliderEnd');
+  let a = Number(ss.value), b = Number(se.value);
+  if(a > b){ const t=a; a=b; b=t; }
+  dashState = { start: dashDates[a], end: dashDates[b] };
+  const vendors = activeVendors();
+  renderOverviewChart(vendors);
+  renderDailyChart(vendors);
+  renderDashboardBody();
+}
+// Apply the calendar date inputs to the selected period.
+function applyDateSelectors(){
+  const s = document.getElementById('dateStart'), e = document.getElementById('dateEnd');
+  if(!s || !e) return;
+  let start = parseDateInput(s.value), end = parseDateInput(e.value);
+  if(!start || !end) return;               // need both dates
+  if(start > end){ const t=start; start=end; end=t; }
+  dashState = { start, end };
+  const vendors = activeVendors();
+  renderOverviewChart(vendors);
+  renderDailyChart(vendors);
+  renderDashboardBody();
+}
+/* ===================== Slicer filters ===================== */
+function escAttr(s){ return esc(String(s)).replace(/"/g,'&quot;'); }
+function collectFilterValues(vendors){
+  const vals = { type:new Set(), status:new Set(), cause:new Set(), aname:new Set(), case:new Set(), mname:new Set(), uid:new Set(), cim:new Set() };
+  vendors.forEach(v=>(state[v].current.listRows||[]).forEach(row=>{
+    if(row.machine) vals.type.add(String(row.machine));
+    vals.status.add(normalizeStatus(row.status) || '(none)');
+    vals.cause.add(row.cause||'Unknown');
+    if(row.alarmName) vals.aname.add(String(row.alarmName));
+    vals.case.add(caseVal(row));
+    (row.daily||[]).forEach(e=> e.locations.forEach(l=>{ vals.uid.add(machinePrefix(l)); vals.mname.add(machineName(l)); }));
+  }));
+  vals.cim.add('CIM'); vals.cim.add('Non-CIM');
+  return vals;
+}
+function updateFilterSummary(){
+  const el = document.getElementById('filterSummary'); if(!el) return;
+  const active = FILTER_FIELDS.filter(f=>dashFilters[f].size>0);
+  el.textContent = active.length ? `· ${active.map(f=>FILTER_LABEL[f]).join(', ')} filtered` : '· none';
+}
+function renderFilters(vendors){
+  const grid = document.getElementById('filterGrid'); if(!grid) return;
+  if(!vendors.length){ grid.innerHTML = '<span class="muted" style="font-size:12px;">Upload alarm data to enable filters.</span>'; updateFilterSummary(); return; }
+  const vals = collectFilterValues(vendors);
+  grid.innerHTML = FILTER_FIELDS.map(f=>{
+    let list = Array.from(vals[f]).sort((a,b)=>String(a).localeCompare(String(b)));
+    if(f==='case'){ list = list.sort((a,b)=>{ const na=parseFloat(a), nb=parseFloat(b); if(isNaN(na)&&isNaN(nb)) return String(a).localeCompare(String(b)); if(isNaN(na)) return 1; if(isNaN(nb)) return -1; return na-nb; }); }
+    const allChecked = dashFilters[f].size===0;
+    return `<div class="filterbox" data-field="${f}">
+      <div class="ftitle"><span>${FILTER_LABEL[f]}</span><span class="fcount">${list.length}</span></div>
+      <input class="filtersearch" data-field="${f}" placeholder="Search...">
+      <label class="filterall"><input type="checkbox" class="filterall-cb" data-field="${f}" ${allChecked?'checked':''}> (All)</label>
+      <div class="filterlist">
+        ${list.map(val=>{ const s=String(val); return `<label title="${escAttr(s)}"><input type="checkbox" class="filteropt" data-field="${f}" value="${escAttr(s)}" ${dashFilters[f].has(s)?'':'checked'}> ${esc(s)}</label>`; }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  updateFilterSummary();
+}
+function syncAllCheckbox(f){
+  const cb = document.querySelector(`.filterall-cb[data-field="${f}"]`);
+  if(cb) cb.checked = dashFilters[f].size===0;
+}
+function applyFilterChange(){
+  const vendors = activeVendors();
+  renderOverviewChart(vendors);
+  renderDailyChart(vendors);
+  renderDashboardBody();
+  updateFilterSummary();
+}
+function renderDashboardBody(){
+  const vendors = activeVendors();
+  renderDateSelectors();
+  if(!vendors.length){
+    renderKPIs(vendors, {total:0,statusByCause:{}}, {start:null,end:null});
+    renderNarrative(vendors);
+    ['chartCause','chartImprove','chartTrend','chartVendorCause','chartVendorStatus'].forEach(destroyChart);
+    document.getElementById('top5Table').innerHTML = '<p class="empty">No alarm lists uploaded. Please upload a file in a vendor tab.</p>';
+    document.getElementById('focusList').innerHTML = '';
+    const cp = document.getElementById('causePct'); if(cp) cp.innerHTML='';
+    // No data at all — clear every drill-down selection and hide their inline reports.
+    selectedDailyKeys=[]; selectedVendorStatusKeys=[];
+    selectedImproveKeys=[]; selectedVendorCauseKeys=[];
+    ['dailyBarReport','vendorStatusBarReport','improveBarReport','vendorCauseBarReport'].forEach(id=>{
+      const box=document.getElementById(id); if(box){ box.style.display='none'; box.innerHTML=''; } delete inlineBarReportData[id];
+    });
+    document.getElementById('locationReportCard').style.display = 'none';
+    document.getElementById('rangeLabel').textContent = 'All';
+    return;
+  }
+  const range = getSelectedRange(vendors);
+  document.getElementById('rangeLabel').textContent = range.start ? `${fmtDate(range.start)} ~ ${fmtDate(range.end)}` : 'All';
+  const stats = computeRangeStats(vendors, range.start, range.end);
+  lastStats = stats;
+  renderKPIs(vendors, stats, range);
+  renderNarrative(vendors, stats, range);
+  try{
+    renderCauseCharts(vendors, stats);
+    renderImproveChart(vendors, stats, range);
+    renderVendorByCause(vendors, range);
+    renderVendorByStatus(vendors, range);
+    renderTrendChart(vendors, range);
+  }catch(err){
+    console.error('Chart rendering error:', err);
+  }
+  renderTop5(stats);
+  renderFocusList(stats);
+  // refresh open location report for the new range, if one is showing
+  if(lastLocReport && document.getElementById('locationReportCard').style.display!=='none'){
+    showLocationReport(lastLocReport.causes || lastLocReport.cause);
+  }
+}
+function renderDashboard(){
+  const vendors = activeVendors();
+  dashDates = getAllDataDates(vendors);
+  // Clamp the selection ONLY when it genuinely falls outside the available data.
+  // When no vendor is selected (no dates yet), keep the date selection so toggling
+  // the vendor "All" off/on does not wipe the chosen period.
+  if(dashState.start && dashDates.length && (dashState.start < dashDates[0] || dashState.end > dashDates[dashDates.length-1])){
+    dashState = { start:null, end:null };
+  }
+  renderFilters(vendors);
+  renderOverviewChart(vendors);
+  renderDailyChart(vendors);
+  renderDashboardBody();
+}
+
+/* ===================== Initialization ===================== */
+document.addEventListener('DOMContentLoaded', ()=>{
+  // Lighter: turn off Chart.js animations so re-renders (every filter change redraws
+  // ~9 charts) are instant and cheap. Features/specs are unchanged.
+  if(window.Chart && Chart.defaults){ Chart.defaults.animation=false; Chart.defaults.animations=false; }
+  buildTabsAndPanels();
+  if(typeof qaApplyLang==='function') qaApplyLang();
+  (function(){ var en=document.getElementById('langEN'), kr=document.getElementById('langKR');
+    if(en) en.style.background=UI_LANG==='EN'?'#2563eb':'#1e293b';
+    if(kr) kr.style.background=UI_LANG==='KR'?'#2563eb':'#1e293b';
+    if(en) en.addEventListener('click',function(){setLang('EN');});
+    if(kr) kr.addEventListener('click',function(){setLang('KR');});
+  })();
+
+  VENDORS.forEach(v=>{
+    const input = document.getElementById(`file-${v}`);
+    const dz = document.getElementById(`dropzone-${v}`);
+    input.addEventListener('change', e=>{
+      handleFilesSelect(v, e.target.files);
+    });
+    dz.addEventListener('click', ()=> input.click());
+    ['dragenter','dragover'].forEach(evt=>{
+      dz.addEventListener(evt, e=>{ e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); });
+    });
+    ['dragleave','dragend'].forEach(evt=>{
+      dz.addEventListener(evt, e=>{ e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); });
+    });
+    dz.addEventListener('drop', e=>{
+      e.preventDefault(); e.stopPropagation();
+      dz.classList.remove('dragover');
+      handleFilesSelect(v, e.dataTransfer.files);
+    });
+  });
+
+  document.getElementById('panels').addEventListener('click', async e=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const { action, vendor, fileid } = btn.dataset;
+    if(action==='refresh'){ btn.disabled=true; await refreshVendor(vendor); renderDashboard(); btn.disabled=false; }
+    if(action==='download-file') downloadFile(vendor, fileid);
+    if(action==='delete-file'){ btn.disabled=true; await deleteFile(vendor, fileid); btn.disabled=false; }
+  });
+
+  document.getElementById('panel-DASH').addEventListener('change', e=>{
+    if(e.target.id==='vendorAll'){
+      selectedVendors.clear();
+      if(e.target.checked) VENDORS.forEach(v=>selectedVendors.add(v));
+      document.querySelectorAll('.vendoropt').forEach(cb=>cb.checked = e.target.checked);
+      renderDashboard();
+      return;
+    }
+    if(e.target.classList.contains('vendoropt')){
+      const v = e.target.value;
+      if(e.target.checked) selectedVendors.add(v); else selectedVendors.delete(v);
+      const allcb = document.getElementById('vendorAll');
+      if(allcb) allcb.checked = (selectedVendors.size === VENDORS.length);
+      renderDashboard();
+      return;
+    }
+    if(e.target.id==='dateStart' || e.target.id==='dateEnd'){ applyDateSelectors(); }
+    if(e.target.id==='sliderStart' || e.target.id==='sliderEnd'){ applyDateSlider(); }
+    // slicer filter checkboxes
+    if(e.target.classList.contains('filteropt')){
+      const f = e.target.dataset.field, val = e.target.value;
+      if(e.target.checked) dashFilters[f].delete(val); else dashFilters[f].add(val);
+      syncAllCheckbox(f);
+      applyFilterChange();
+    } else if(e.target.classList.contains('filterall-cb')){
+      const f = e.target.dataset.field;
+      const box = e.target.closest('.filterbox');
+      const opts = box.querySelectorAll('.filteropt');
+      dashFilters[f].clear();
+      if(e.target.checked){ opts.forEach(o=>o.checked=true); }
+      else { opts.forEach(o=>{ o.checked=false; dashFilters[f].add(o.value); }); }
+      applyFilterChange();
+    }
+  });
+  document.getElementById('panel-DASH').addEventListener('input', e=>{
+    if(e.target.classList.contains('filtersearch')){
+      const q = e.target.value.toLowerCase();
+      const box = e.target.closest('.filterbox');
+      box.querySelectorAll('.filterlist label').forEach(lb=>{
+        lb.style.display = lb.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
+    if(e.target.id==='sliderStart' || e.target.id==='sliderEnd'){ onDateSliderInput(); }
+  });
+  document.getElementById('panel-DASH').addEventListener('click', e=>{
+    if(e.target.id==='dashRefresh'){ renderDashboard(); }
+    if(e.target.id==='rangeReset'){ dashState={start:null,end:null}; renderDashboard(); }
+    if(e.target.id==='filterClear'){ FILTER_FIELDS.forEach(f=>dashFilters[f].clear()); renderDashboard(); }
+    if(e.target.id==='locReportClose'){ document.getElementById('locationReportCard').style.display='none'; selectedCauses=[]; causeAnchorIdx=-1; const ch=chartInstances['chartCause']; if(ch && window.lastCausePresent){ ch.data.datasets[0].backgroundColor=causeBarColors(window.lastCausePresent); ch.update(); } }
+    if(e.target.id==='locExportCsv'){ exportLocReportCsv(); }
+    if(e.target.id==='locExportXlsx'){ exportLocReportXlsx(); }
+    if(e.target.dataset && e.target.dataset.inlineClose){ closeInlineBarReport(e.target.dataset.inlineClose); }
+    if(e.target.dataset && e.target.dataset.inlineExport){
+      const cid = e.target.dataset.target;
+      if(e.target.dataset.inlineExport==='csv') exportInlineReportCsv(cid); else exportInlineReportXlsx(cid);
+    }
+    if(e.target.id==='expDaily'){ exportDailyXlsx(); }
+    if(e.target.id==='expCause'){ exportCauseXlsx(); }
+    if(e.target.id==='expImprove'){ exportImproveXlsx(); }
+    if(e.target.id==='expTrend'){ exportTrendXlsx(); }
+    if(e.target.id==='expVendorCause'){ exportVendorCauseXlsx(); }
+    if(e.target.id==='expVendorStatus'){ exportVendorStatusXlsx(); }
+    if(e.target.id==='expTop'){ exportTopXlsx(); }
+    if(e.target.id==='expFocus'){ exportFocusXlsx(); }
+    if(e.target.id==='qaRun'){ const inp=document.getElementById('qaInput'); qaRunQuery(inp?inp.value:''); }
+    if(e.target.id==='qaExport'){ exportQaXlsx(); }
+    if(e.target.id==='topModeCase' || e.target.id==='topModeAlarm'){
+      topMode = e.target.dataset.mode;
+      document.getElementById('topModeCase').className = 'btn sm' + (topMode==='case'?'':' secondary');
+      document.getElementById('topModeAlarm').className = 'btn sm' + (topMode==='alarm'?'':' secondary');
+      if(lastStats) renderTop5(lastStats);
+    }
+  });
+
+  // Enter key in the Q&A box runs the query.
+  document.getElementById('panel-DASH').addEventListener('keydown', e=>{
+    if(e.target.id==='qaInput' && e.key==='Enter'){ e.preventDefault(); qaRunQuery(e.target.value); }
+  });
+
+  // Drag-to-select the analysis period on the daily bar chart.
+  setupDailyChartDrag();
+
+  // On page load, automatically fetch each vendor's file list from the shared storage (Firebase).
+  (async ()=>{
+    if(!fbConfigured()){
+      VENDORS.forEach(v => setSyncStatus(v, '⚠ Firebase is not configured. Set FIREBASE_CONFIG at the top of the code to enable shared storage and auto-loading.', true));
+      renderDashboard();
+      return;
+    }
+    await Promise.all(VENDORS.map(v => refreshVendor(v)));
+    renderDashboard();
+  })();
+});
+
+</script>
+</body>
+</html>
